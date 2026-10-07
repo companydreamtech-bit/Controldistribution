@@ -1,0 +1,15 @@
+.git
+.gitignore
+.env
+.pytest_cache
+.superpowers
+__pycache__
+*/__pycache__
+*/*/__pycache__
+*.pyc
+*.pyo
+*.pyd
+.vscode
+.idea
+tests
+docs
