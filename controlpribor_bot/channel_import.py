@@ -36,6 +36,13 @@ DEFAULT_CHANNEL = "asfdistribution"
 MEDIA_PREFIX = "media/"
 OTHER_CATEGORY = "Boshqa tovarlar"
 
+# Matnidan aniqlab bo'lmaydigan postlar uchun qo'lda tekshirilgan ma'lumotlar (rasm bo'yicha).
+# Bu qiymatlar mavjud tovarlarga ham har importda qo'llanadi.
+POST_OVERRIDES: Dict[int, Dict[str, str]] = {
+    306: {"name": "VOLT LED lampochka (20W–50W)", "brand": "Volt", "category": "Yoritish"},
+    330: {"name": "Пилки для электролобзика", "category": "Instrumentlar"},
+}
+
 # Kanondagi brend nomi -> postlarda uchraydigan yozilishlari
 BRAND_ALIASES: Dict[str, List[str]] = {
     "Akfix": ["AKFIX"],
@@ -167,6 +174,7 @@ class ParsedProduct:
     image_src: Optional[str]
     post_url: str
     needs_review: bool = False
+    overridden: bool = False
 
 
 @dataclass
@@ -409,7 +417,7 @@ def parse_post(post: ChannelPost, channel: str = DEFAULT_CHANNEL) -> Optional[Pa
     # Tavsif: sarlavhadan keyingi qatorlar (tovar kartasida ko'rinadi)
     description = "\n".join(lines[1:]).strip() or None
 
-    return ParsedProduct(
+    product = ParsedProduct(
         post_id=post.post_id,
         name=name[:200],
         brand=brand,
@@ -420,6 +428,14 @@ def parse_post(post: ChannelPost, channel: str = DEFAULT_CHANNEL) -> Optional[Pa
         post_url=f"https://t.me/{channel}/{post.post_id}",
         needs_review=needs_review,
     )
+    override = POST_OVERRIDES.get(post.post_id) if channel == DEFAULT_CHANNEL else None
+    if override:
+        product.name = override.get("name", product.name)
+        product.brand = override.get("brand", product.brand)
+        product.category = override.get("category", product.category)
+        product.needs_review = False
+        product.overridden = True
+    return product
 
 
 # --- Kanal sahifalarini o'qish ---
@@ -537,6 +553,19 @@ async def import_channel(
         brand_ids: Dict[str, int] = {}
         category_ids: Dict[str, int] = {}
 
+        async def brand_id_for(name: Optional[str]) -> Optional[int]:
+            if not name:
+                return None
+            if name not in brand_ids:
+                slug = re.sub(r"[\s_-]+", "-", re.sub(r"[^\w\s-]", "", name.lower())).strip("-")
+                brand_ids[name] = (await db.add_brand(name, slug)).id
+            return brand_ids[name]
+
+        async def category_id_for(name: str) -> int:
+            if name not in category_ids:
+                category_ids[name] = (await db.add_category(name)).id
+            return category_ids[name]
+
         for post in posts:
             product = parse_post(post, channel)
             if not product:
@@ -544,7 +573,7 @@ async def import_channel(
                 continue
 
             existing = await db.get_product_by_url(product.post_url)
-            if not existing:
+            if not existing and not product.overridden:
                 product.name = await _unique_name(db, product, used_names)
             used_names.add(product.name.lower())
             result.products.append(product)
@@ -561,30 +590,28 @@ async def import_channel(
                     image_url = rel_path
 
             if existing:
-                await db.update_product_fields(
-                    existing.id,
-                    price=product.price,
-                    description=product.description,
-                    image_url=image_url,
-                )
+                fields = {"image_url": image_url}
+                # Kanalda narx/tavsif bo'lmasa, admin qo'lda kiritgani saqlanadi
+                if product.price != "Kelishilgan holda":
+                    fields["price"] = product.price
+                if product.description:
+                    fields["description"] = product.description
+                if product.overridden:
+                    # Qo'lda tekshirilgan nom/brend/kategoriya avval import qilingan tovarga ham qo'llanadi
+                    fields.update(
+                        name=product.name,
+                        brand_id=await brand_id_for(product.brand),
+                        category_id=await category_id_for(product.category),
+                    )
+                await db.update_product_fields(existing.id, **fields)
                 result.updated += 1
                 continue
-
-            brand_id = None
-            if product.brand:
-                if product.brand not in brand_ids:
-                    slug = re.sub(r"[\s_-]+", "-", re.sub(r"[^\w\s-]", "", product.brand.lower())).strip("-")
-                    brand_ids[product.brand] = (await db.add_brand(product.brand, slug)).id
-                brand_id = brand_ids[product.brand]
-
-            if product.category not in category_ids:
-                category_ids[product.category] = (await db.add_category(product.category)).id
 
             await db.add_product(
                 name=product.name,
                 price=product.price,
-                brand_id=brand_id,
-                category_id=category_ids[product.category],
+                brand_id=await brand_id_for(product.brand),
+                category_id=await category_id_for(product.category),
                 image_url=image_url,
                 description=product.description,
                 product_url=product.post_url,

@@ -96,7 +96,7 @@ def test_non_product_posts_are_skipped(text):
 
 
 def test_unknown_product_is_flagged_for_review():
-    p = parse_post(post('20W"  - 0.90$\n30W" - 1.20$' + CONTACTS, 306))
+    p = parse_post(post('20W"  - 0.90$\n30W" - 1.20$' + CONTACTS, 9306))
     assert p.needs_review
     assert p.category == "Boshqa tovarlar"
 
@@ -257,3 +257,55 @@ def test_resolve_photo(tmp_path: Path):
     assert resolve_photo("https://example.com/a.jpg", db_path) == "https://example.com/a.jpg"
     assert resolve_photo("AgACAgIAAxkBAAI", db_path) == "AgACAgIAAxkBAAI"
     assert resolve_photo(None, db_path) is None
+
+
+@pytest.mark.asyncio
+async def test_post_overrides_fix_already_imported_products(db: DatabaseManager, tmp_path: Path):
+    # Avvalgi import #306 ni noaniq nom bilan yozgan
+    old = await db.add_product(
+        name='Tovar — 20W" / 30W"', price="0.9$ – 2.3$",
+        product_url="https://t.me/asfdistribution/306",
+    )
+    page = """
+    <div class="tgme_widget_message" data-post="asfdistribution/306">
+      <div class="tgme_widget_message_text">20W"  - 0.90$<br/>30W" - 1.20$<br/>50W" - 2.30$</div>
+    </div>
+    <div class="tgme_widget_message" data-post="asfdistribution/330">
+      <div class="tgme_widget_message_text">- для электролобзика<br/><br/>- 0.53$</div>
+    </div>
+    """
+    async with make_client(page, []) as client:
+        result = await import_channel(db, tmp_path / "media", client=client)
+
+    assert result.needs_review == []
+    assert (result.created, result.updated) == (1, 1)
+
+    lamp = await db.get_product_by_id(old.id)
+    assert lamp.name == "VOLT LED lampochka (20W–50W)"
+    assert lamp.brand.name == "Volt"
+    assert lamp.category.name == "Yoritish"
+    assert lamp.price == "0.9$ – 2.3$"
+
+    blades = await db.get_product_by_url("https://t.me/asfdistribution/330")
+    blades = await db.get_product_by_id(blades.id)
+    assert blades.name == "Пилки для электролобзика"
+    assert blades.category.name == "Instrumentlar"
+
+
+@pytest.mark.asyncio
+async def test_reimport_keeps_admin_price_when_post_has_none(db: DatabaseManager, tmp_path: Path):
+    page = """
+    <div class="tgme_widget_message" data-post="asfdistribution/11">
+      <div class="tgme_widget_message_text">💡 LED лампочка 15W<br/><br/>❗ TESS</div>
+    </div>
+    """
+    async with make_client(page, []) as client:
+        await import_channel(db, tmp_path / "media", client=client)
+    lamp = await db.get_product_by_url("https://t.me/asfdistribution/11")
+    assert lamp.price == "Kelishilgan holda"
+
+    await db.update_product_fields(lamp.id, price="12 000 so'm")
+    async with make_client(page, []) as client:
+        await import_channel(db, tmp_path / "media", client=client)
+
+    assert (await db.get_product_by_id(lamp.id)).price == "12 000 so'm"

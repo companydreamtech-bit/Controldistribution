@@ -12,6 +12,7 @@ BRAND_ICONS = {
     "redray": "💡",
     "oydin electric": "💡",
     "layton": "💡",
+    "volt": "💡",
     "chint": "⚡",
     "nura electric": "⚡",
     "balance": "🔋",
