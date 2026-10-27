@@ -1,4 +1,6 @@
 import html
+from typing import Optional
+
 from aiogram import Router, F
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
@@ -10,6 +12,28 @@ from controlpribor_bot.database.db_manager import DatabaseManager
 from controlpribor_bot.keyboards.default_kb import get_main_menu_kb, get_contact_kb
 
 start_router = Router(name="start_router")
+
+
+NO_PHONE = "Ko'rsatilmagan"
+
+
+def normalize_phone(raw: Optional[str]) -> Optional[str]:
+    """Telefon raqamini "+998..." ko'rinishiga keltirish; 9 tadan kam raqam bo'lsa None."""
+    digits = "".join(filter(str.isdigit, raw or ""))
+    if len(digits) < 9:
+        return None
+    return "+" + digits
+
+
+def has_phone(user) -> bool:
+    return bool(user and user.phone_number and user.phone_number != NO_PHONE)
+
+
+async def save_registration(db: DatabaseManager, telegram_id: int, full_name: str, phone: str) -> None:
+    """Yangi foydalanuvchini yaratish yoki telefonsiz yaratilgan (savatchadan kelgan) yozuvga raqamni yozish."""
+    _, created = await db.get_or_create_user(telegram_id=telegram_id, full_name=full_name, phone_number=phone)
+    if not created:
+        await db.update_user_phone(telegram_id, phone)
 
 
 class RegistrationStates(StatesGroup):
@@ -83,18 +107,12 @@ async def process_name(message: Message, state: FSMContext):
 
 @start_router.message(RegistrationStates.waiting_for_phone, F.contact)
 async def process_phone_contact(message: Message, state: FSMContext, db: DatabaseManager, config: Config):
-    phone = message.contact.phone_number
-    if not phone.startswith("+"):
-        phone = "+" + phone
+    phone = normalize_phone(message.contact.phone_number)
 
     data = await state.get_data()
     full_name = data.get("full_name", message.from_user.full_name or "Mijoz")
 
-    await db.get_or_create_user(
-        telegram_id=message.from_user.id,
-        full_name=full_name,
-        phone_number=phone,
-    )
+    await save_registration(db, message.from_user.id, full_name, phone)
     await state.clear()
 
     text = (
@@ -111,9 +129,8 @@ async def process_phone_contact(message: Message, state: FSMContext, db: Databas
 
 @start_router.message(RegistrationStates.waiting_for_phone, F.text)
 async def process_phone_text(message: Message, state: FSMContext, db: DatabaseManager, config: Config):
-    phone = message.text.strip()
-    cleaned_digits = "".join(filter(str.isdigit, phone))
-    if len(cleaned_digits) < 9:
+    phone = normalize_phone(message.text)
+    if not phone:
         await message.answer(
             "⚠️ <b>Iltimos, telefon raqamingizni to'g'ri formatda kiriting:</b>\n"
             "<i>(Masalan: +998901234567)</i> yoki pastdagi tugmani bosing:",
@@ -122,17 +139,10 @@ async def process_phone_text(message: Message, state: FSMContext, db: DatabaseMa
         )
         return
 
-    if not phone.startswith("+"):
-        phone = "+" + cleaned_digits
-
     data = await state.get_data()
     full_name = data.get("full_name", message.from_user.full_name or "Mijoz")
 
-    await db.get_or_create_user(
-        telegram_id=message.from_user.id,
-        full_name=full_name,
-        phone_number=phone,
-    )
+    await save_registration(db, message.from_user.id, full_name, phone)
     await state.clear()
 
     text = (

@@ -8,6 +8,7 @@ from aiogram.types import Message, CallbackQuery, FSInputFile
 
 from controlpribor_bot.config import Config
 from controlpribor_bot.database.db_manager import DatabaseManager
+from controlpribor_bot.handlers.start import NO_PHONE
 from controlpribor_bot.keyboards.inline_kb import (
     get_brands_kb,
     get_categories_kb,
@@ -115,7 +116,7 @@ async def handle_brand_categories_pagination(callback: CallbackQuery, db: Databa
 
 @catalog_router.callback_query(F.data.startswith("brand_"))
 async def handle_brand_click(callback: CallbackQuery, db: DatabaseManager):
-    await callback.answer()
+    # Callback'ga faqat bir marta javob berish mumkin, shuning uchun alertdan oldin answer() chaqirilmaydi
     brand_id = int(callback.data.split("_")[1])
     brand = await db.get_brand_by_id(brand_id)
     if not brand:
@@ -124,6 +125,7 @@ async def handle_brand_click(callback: CallbackQuery, db: DatabaseManager):
 
     categories = await db.get_categories_by_brand(brand_id)
     if categories:
+        await callback.answer()
         await callback.message.edit_text(
             f"🏷 <b>{html.escape(brand.name)}</b> brendiga tegishli toifalar:\n\nBo'limni tanlang:",
             reply_markup=get_categories_kb(categories, brand_id=brand_id, page=1),
@@ -137,6 +139,7 @@ async def handle_brand_click(callback: CallbackQuery, db: DatabaseManager):
             await callback.answer("Ushbu brendda hozircha tovarlar mavjud emas.", show_alert=True)
             return
 
+        await callback.answer()
         await callback.message.edit_text(
             f"🏷 <b>{html.escape(brand.name)}</b> mahsulotlari ({total} ta):",
             reply_markup=get_products_list_kb(products, page=1, total_pages=total_pages, brand_id=brand_id),
@@ -146,7 +149,6 @@ async def handle_brand_click(callback: CallbackQuery, db: DatabaseManager):
 
 @catalog_router.callback_query(F.data.startswith("cat_"))
 async def handle_category_click(callback: CallbackQuery, db: DatabaseManager):
-    await callback.answer()
     parts = callback.data.split("_")
     category_id = int(parts[1])
     brand_id = int(parts[2]) if len(parts) > 2 else None
@@ -163,6 +165,7 @@ async def handle_category_click(callback: CallbackQuery, db: DatabaseManager):
         await callback.answer("Ushbu toifada tovarlar topilmadi.", show_alert=True)
         return
 
+    await callback.answer()
     brand_name = ""
     if brand_id:
         brand = await db.get_brand_by_id(brand_id)
@@ -180,12 +183,12 @@ async def handle_category_click(callback: CallbackQuery, db: DatabaseManager):
 
 @catalog_router.callback_query(F.data.startswith("prod_"))
 async def handle_product_click(callback: CallbackQuery, db: DatabaseManager, config: Config):
-    await callback.answer()
     product_id = int(callback.data.split("_")[1])
     product = await db.get_product_by_id(product_id)
     if not product:
         await callback.answer("Tovar topilmadi!", show_alert=True)
         return
+    await callback.answer()
 
     # Telegram rasm izohi (caption) 1024 belgidan oshmasligi uchun tavsifni qisqartiramiz
     desc = product.description or ""
@@ -286,7 +289,7 @@ async def handle_add_to_cart(callback: CallbackQuery, db: DatabaseManager):
         user, _ = await db.get_or_create_user(
             telegram_id=callback.from_user.id,
             full_name=callback.from_user.full_name or "Mijoz",
-            phone_number="Ko'rsatilmagan",
+            phone_number=NO_PHONE,
         )
 
     await db.add_to_cart(user_id=user.id, product_id=product_id, quantity=quantity)
@@ -387,6 +390,15 @@ async def back_to_brand_categories(callback: CallbackQuery, db: DatabaseManager)
     await callback.answer()
     brand_id = int(callback.data.split("_")[-1])
     brand = await db.get_brand_by_id(brand_id)
+    if not brand:
+        # Brend o'chirilgan bo'lsa, brendlar ro'yxatiga qaytamiz
+        brands = await db.get_brands()
+        await callback.message.edit_text(
+            "🏷 <b>Asosiy brendlar:</b>\n\nKerakli brendni tanlang:",
+            reply_markup=get_brands_kb(brands, page=1),
+            parse_mode="HTML",
+        )
+        return
     categories = await db.get_categories_by_brand(brand_id)
     await callback.message.edit_text(
         f"🏷 <b>{html.escape(brand.name)}</b> brendiga tegishli toifalar:\n\nBo'limni tanlang:",

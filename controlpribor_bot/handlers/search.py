@@ -1,6 +1,7 @@
 import html
 import math
 from aiogram import Router, F
+from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery
@@ -36,6 +37,7 @@ async def perform_state_search(message: Message, state: FSMContext, db: Database
 
 # Foydalanuvchi qidiruv tugmasini bosmasdan to'g'ridan-to'g'ri matn yozsa ham qidirish (lekin bosh menyu buyruqlari bo'lmasa)
 @search_router.message(
+    StateFilter(None),
     F.text
     & ~F.text.startswith("/")
     & ~F.text.in_([

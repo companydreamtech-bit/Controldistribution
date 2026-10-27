@@ -1,5 +1,5 @@
 from typing import List, Optional, Tuple, Dict, Any
-from sqlalchemy import event, select, update, delete, func, text, or_
+from sqlalchemy import case, event, select, update, delete, func, text, or_
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import selectinload
 
@@ -48,6 +48,11 @@ FEATURED_BRANDS = [
 ]
 OTHER_BRANDS_NAME = "boshqa brendlar"
 
+
+def _unicode_lower(value):
+    """SQLite LOWER() faqat lotin harflarini kichiklashtiradi; bu funksiya kirillni ham qamraydi."""
+    return value.lower() if isinstance(value, str) else value
+
 class DatabaseManager:
     def __init__(self, db_url: str = "sqlite+aiosqlite:///database.db"):
         self.engine = create_async_engine(db_url, echo=False)
@@ -58,14 +63,18 @@ class DatabaseManager:
         )
         # SQLite tashqi kalitlarni (ON DELETE SET NULL / CASCADE) faqat har bir ulanishda
         # PRAGMA foreign_keys yoqilganda bajaradi.
+        # Katta-kichik harfsiz solishtirish: SQLite'da Python'ning str.lower orqali (kirill harflari uchun)
+        self._lower = func.lower
         if self.engine.dialect.name == "sqlite":
-            event.listen(self.engine.sync_engine, "connect", self._enable_sqlite_fk)
+            event.listen(self.engine.sync_engine, "connect", self._setup_sqlite_connection)
+            self._lower = func.py_lower
 
     @staticmethod
-    def _enable_sqlite_fk(dbapi_connection, connection_record):
+    def _setup_sqlite_connection(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys = ON;")
         cursor.close()
+        dbapi_connection.create_function("py_lower", 1, _unicode_lower, deterministic=True)
 
     async def init_db(self):
         async with self.engine.begin() as conn:
@@ -103,6 +112,17 @@ class DatabaseManager:
             await session.refresh(new_user)
             return new_user, True
 
+    async def update_user_phone(self, telegram_id: int, phone_number: str) -> Optional[User]:
+        async with self.session_factory() as session:
+            res = await session.execute(select(User).where(User.telegram_id == telegram_id))
+            user = res.scalar_one_or_none()
+            if not user:
+                return None
+            user.phone_number = phone_number
+            await session.commit()
+            await session.refresh(user)
+            return user
+
     async def get_user_by_telegram_id(self, telegram_id: int) -> Optional[User]:
         async with self.session_factory() as session:
             stmt = select(User).where(User.telegram_id == telegram_id)
@@ -113,7 +133,7 @@ class DatabaseManager:
     async def find_brand(self, name: str, slug: str, exclude_id: Optional[int] = None) -> Optional[Brand]:
         """Nomi (katta-kichik harfsiz) yoki slug'i mos keladigan brendni topish."""
         async with self.session_factory() as session:
-            stmt = select(Brand).where(or_(func.lower(Brand.name) == name.lower(), Brand.slug == slug))
+            stmt = select(Brand).where(or_(self._lower(Brand.name) == name.lower(), Brand.slug == slug))
             if exclude_id is not None:
                 stmt = stmt.where(Brand.id != exclude_id)
             res = await session.execute(stmt.limit(1))
@@ -181,7 +201,7 @@ class DatabaseManager:
     async def find_category(self, name: str, exclude_id: Optional[int] = None) -> Optional[Category]:
         """Nomi (katta-kichik harfsiz) mos keladigan kategoriyani topish."""
         async with self.session_factory() as session:
-            stmt = select(Category).where(func.lower(Category.name) == name.lower())
+            stmt = select(Category).where(self._lower(Category.name) == name.lower())
             if exclude_id is not None:
                 stmt = stmt.where(Category.id != exclude_id)
             res = await session.execute(stmt.limit(1))
@@ -291,7 +311,7 @@ class DatabaseManager:
 
     async def get_product_by_name(self, name: str) -> Optional[Product]:
         async with self.session_factory() as session:
-            stmt = select(Product).where(func.lower(Product.name) == name.lower()).limit(1)
+            stmt = select(Product).where(self._lower(Product.name) == name.lower()).limit(1)
             res = await session.execute(stmt)
             return res.scalar_one_or_none()
 
@@ -359,16 +379,22 @@ class DatabaseManager:
     async def search_products(
         self, query: str, page: int = 1, limit: int = 6
     ) -> Tuple[List[Product], int]:
+        """Nom va tavsif bo'yicha katta-kichik harfsiz qidiruv (variant kodlari tavsifda turadi).
+
+        Nomida topilganlar birinchi chiqadi.
+        """
         offset = (page - 1) * limit
-        search_pattern = f"%{query.strip()}%"
+        q = query.strip().lower()
+        in_name = self._lower(Product.name).contains(q, autoescape=True)
+        condition = or_(in_name, self._lower(Product.description).contains(q, autoescape=True))
         async with self.session_factory() as session:
-            count_stmt = select(func.count(Product.id)).where(Product.name.ilike(search_pattern))
+            count_stmt = select(func.count(Product.id)).where(condition)
             total = (await session.execute(count_stmt)).scalar() or 0
 
             stmt = (
                 select(Product)
-                .where(Product.name.ilike(search_pattern))
-                .order_by(Product.id.desc())
+                .where(condition)
+                .order_by(case((in_name, 0), else_=1), Product.id.desc())
                 .offset(offset)
                 .limit(limit)
             )

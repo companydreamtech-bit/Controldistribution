@@ -1,15 +1,21 @@
 import html
+import logging
 import re
 from datetime import datetime
 from typing import Optional
 from aiogram import Router, F, Bot
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery
 
 from controlpribor_bot.config import Config
 from controlpribor_bot.database.db_manager import DatabaseManager
+from controlpribor_bot.handlers.start import has_phone, normalize_phone
+from controlpribor_bot.keyboards.default_kb import get_contact_kb, get_main_menu_kb
 from controlpribor_bot.keyboards.inline_kb import get_cart_kb
 
 cart_router = Router(name="cart_router")
+logger = logging.getLogger(__name__)
 
 
 def parse_price(price_str: str) -> tuple[Optional[float], str]:
@@ -133,42 +139,20 @@ async def clear_cart_handler(callback: CallbackQuery, db: DatabaseManager):
     )
 
 
-@cart_router.callback_query(F.data == "checkout_order")
-async def checkout_order_handler(callback: CallbackQuery, db: DatabaseManager, bot: Bot, config: Config):
-    user = await db.get_user_by_telegram_id(callback.from_user.id)
-    if not user:
-        await callback.answer("Foydalanuvchi topilmadi!", show_alert=True)
-        return
+class CheckoutStates(StatesGroup):
+    waiting_for_phone = State()
 
-    items = await db.get_cart_items(user_id=user.id)
-    if not items:
-        await callback.answer("Savatchangiz bo'sh!", show_alert=True)
-        return
 
-    _, total_price = format_cart_message(items)
-
-    # 1. Bazada buyurtma yaratish
-    order = await db.create_order(
-        user_id=user.id,
-        total_price=total_price,
-        items=items,
-    )
-
-    # 2. Xodimlar Telegram guruhiga buyurtma yuborish
-    group_id = config.ORDER_GROUP_ID
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-
-    order_lines = []
-    for idx, itm in enumerate(items, start=1):
-        order_lines.append(
-            f"{idx}. {html.escape(itm['product_name'])} — {itm['quantity']} dona (Narxi: {html.escape(itm['price'])})"
-        )
-
+def build_order_message(order_id: int, user, tg_user, items: list, total_price: str) -> str:
+    """Xodimlarga yuboriladigan buyurtma matni."""
+    order_lines = [
+        f"{idx}. {html.escape(itm['product_name'])} — {itm['quantity']} dona (Narxi: {html.escape(itm['price'])})"
+        for idx, itm in enumerate(items, start=1)
+    ]
+    username = f"@{tg_user.username}" if tg_user.username else f"ID: {tg_user.id}"
     items_block = "\n".join(order_lines)
-    username = f"@{callback.from_user.username}" if callback.from_user.username else f"ID: {callback.from_user.id}"
-
-    group_message = (
-        f"🔔 <b>YANGI BUYURTMA #{order.id}</b>\n"
+    return (
+        f"🔔 <b>YANGI BUYURTMA #{order_id}</b>\n"
         f"👤 <b>Mijoz:</b> {html.escape(user.full_name)}\n"
         f"📞 <b>Telefon:</b> {html.escape(user.phone_number)}\n"
         f"💬 <b>Telegram:</b> {username}\n"
@@ -176,32 +160,113 @@ async def checkout_order_handler(callback: CallbackQuery, db: DatabaseManager, b
         f"📦 <b>Mahsulotlar:</b>\n"
         f"{items_block}\n"
         f"────────────────────────────────\n"
-        f"💰 <b>Jami:</b> {total_price}\n"
-        f"⏰ <b>Vaqti:</b> {now_str}"
+        f"💰 <b>Jami:</b> {html.escape(total_price)}\n"
+        f"⏰ <b>Vaqti:</b> {datetime.now().strftime('%Y-%m-%d %H:%M')}"
     )
 
-    if group_id and group_id != 0:
+
+async def deliver_order(bot: Bot, config: Config, order_id: int, text: str) -> bool:
+    """Buyurtmani xodimlar guruhiga, u ishlamasa — adminlarga shaxsiy xabar qilib yuborish."""
+    if config.ORDER_GROUP_ID:
+        try:
+            await bot.send_message(chat_id=config.ORDER_GROUP_ID, text=text, parse_mode="HTML")
+            return True
+        except Exception:
+            logger.exception("Buyurtma #%s guruhga (%s) yuborilmadi", order_id, config.ORDER_GROUP_ID)
+    else:
+        logger.warning("ORDER_GROUP_ID sozlanmagan, buyurtma #%s adminlarga yuboriladi", order_id)
+
+    delivered = False
+    for admin_id in config.ADMIN_IDS:
         try:
             await bot.send_message(
-                chat_id=group_id,
-                text=group_message,
+                chat_id=admin_id,
+                text="⚠️ <i>Buyurtmalar guruhiga yuborib bo'lmadi, sizga yuborilmoqda.</i>\n\n" + text,
                 parse_mode="HTML",
             )
-        except Exception as e:
-            # Agar guruh ID noto'g'ri bo'lsa yoki bot guruhda bo'lmasa, mijozga xatolik bermaymiz
-            pass
+            delivered = True
+        except Exception:
+            logger.exception("Buyurtma #%s admin %s ga yuborilmadi", order_id, admin_id)
+    if not delivered:
+        logger.error("Buyurtma #%s hech kimga yetkazilmadi! Faqat bazada saqlangan.", order_id)
+    return delivered
 
-    # 3. Savatchani tozalash
+
+async def place_order(target: Message, tg_user, user, db: DatabaseManager, bot: Bot, config: Config) -> bool:
+    """Savatchadan buyurtma yaratish, xodimlarga yuborish va mijozga javob berish."""
+    items = await db.get_cart_items(user_id=user.id)
+    if not items:
+        await target.answer("🛒 Savatchangiz bo'sh.")
+        return False
+
+    _, total_price = format_cart_message(items)
+    order = await db.create_order(user_id=user.id, total_price=total_price, items=items)
+    await deliver_order(bot, config, order.id, build_order_message(order.id, user, tg_user, items, total_price))
     await db.clear_cart(user_id=user.id)
 
-    # 4. Mijozga javob
-    await callback.message.delete()
-    await callback.message.answer(
+    await target.answer(
         f"✅ <b>Buyurtmangiz muvaffaqiyatli qabul qilindi!</b>\n\n"
         f"🆔 <b>Buyurtma raqami:</b> #{order.id}\n"
-        f"💰 <b>Summa:</b> {total_price}\n\n"
+        f"💰 <b>Summa:</b> {html.escape(total_price)}\n\n"
         f"Operatorimiz tez orada siz bilan bog'lanadi va yetkazib berish shartlarini kelishadi.\n"
         f"Xaridingiz uchun rahmat!",
+        reply_markup=get_main_menu_kb(is_admin=config.is_admin(tg_user.id)),
         parse_mode="HTML",
     )
+    return True
+
+
+@cart_router.callback_query(F.data == "checkout_order")
+async def checkout_order_handler(
+    callback: CallbackQuery, state: FSMContext, db: DatabaseManager, bot: Bot, config: Config
+):
+    user = await db.get_user_by_telegram_id(callback.from_user.id)
+    if not user:
+        await callback.answer("Foydalanuvchi topilmadi!", show_alert=True)
+        return
+
+    if not await db.get_cart_items(user_id=user.id):
+        await callback.answer("Savatchangiz bo'sh!", show_alert=True)
+        return
+
     await callback.answer()
+    # Telefonsiz buyurtma xodimlarga foydasiz — avval raqamni so'raymiz
+    if not has_phone(user):
+        await state.set_state(CheckoutStates.waiting_for_phone)
+        await callback.message.answer(
+            "📞 <b>Buyurtmani rasmiylashtirish uchun telefon raqamingizni yuboring.</b>\n\n"
+            "Pastdagi <b>«📱 Telefon raqamni yuborish»</b> tugmasini bosing yoki raqamni yozing:\n"
+            "<i>(Masalan: +998901234567)</i>",
+            reply_markup=get_contact_kb(),
+            parse_mode="HTML",
+        )
+        return
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    await place_order(callback.message, callback.from_user, user, db, bot, config)
+
+
+@cart_router.message(CheckoutStates.waiting_for_phone, F.contact | F.text)
+async def checkout_phone_received(
+    message: Message, state: FSMContext, db: DatabaseManager, bot: Bot, config: Config
+):
+    raw = message.contact.phone_number if message.contact else message.text
+    phone = normalize_phone(raw)
+    if not phone:
+        await message.answer(
+            "⚠️ <b>Iltimos, telefon raqamingizni to'g'ri formatda kiriting:</b>\n"
+            "<i>(Masalan: +998901234567)</i> yoki pastdagi tugmani bosing:",
+            reply_markup=get_contact_kb(),
+            parse_mode="HTML",
+        )
+        return
+
+    user = await db.update_user_phone(message.from_user.id, phone)
+    await state.clear()
+    if not user:
+        await message.answer("Iltimos, avval /start buyrug'i orqali ro'yxatdan o'ting.")
+        return
+    await place_order(message, message.from_user, user, db, bot, config)
