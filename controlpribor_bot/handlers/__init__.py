@@ -3,6 +3,7 @@ from controlpribor_bot.handlers.catalog import catalog_router
 from controlpribor_bot.handlers.search import search_router
 from controlpribor_bot.handlers.cart import cart_router
 from controlpribor_bot.handlers.other import other_router
+from controlpribor_bot.handlers.admin import admin_router
 
 __all__ = [
     "start_router",
@@ -10,4 +11,6 @@ __all__ = [
     "search_router",
     "cart_router",
     "other_router",
+    "admin_router",
 ]
+

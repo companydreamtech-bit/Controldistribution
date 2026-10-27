@@ -123,3 +123,31 @@ async def test_cart_and_order_flow(db: DatabaseManager):
     await db.clear_cart(user_id=user.id)
     empty_items = await db.get_cart_items(user_id=user.id)
     assert len(empty_items) == 0
+
+
+@pytest.mark.asyncio
+async def test_default_categories(db: DatabaseManager):
+    cats = await db.get_all_categories()
+    cat_names = [c.name for c in cats]
+    expected = [
+        "AKFIX",
+        "TERAFIX",
+        "TYTAN",
+        "TESS",
+        "NILSON",
+        "OYDIN ELECTRIC",
+        "NURA ELECTRIC",
+        "CHINT",
+        "BAUMANN ELECTRIC",
+        "PROCAB",
+        "UZKABEL",
+        "gofra va korp",
+        "Metall shitlar",
+        "Instrumentlar",
+        "SAM shlanglar",
+        "LEZARD",
+    ]
+    assert len(cat_names) >= 16
+    for name in expected:
+        assert name in cat_names
+

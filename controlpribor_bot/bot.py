@@ -19,6 +19,7 @@ from controlpribor_bot.handlers.catalog import catalog_router
 from controlpribor_bot.handlers.search import search_router
 from controlpribor_bot.handlers.cart import cart_router
 from controlpribor_bot.handlers.other import other_router
+from controlpribor_bot.handlers.admin import admin_router
 
 # Log sozlamalari
 logging.basicConfig(
@@ -38,11 +39,9 @@ def setup_dispatcher(db: DatabaseManager, config: Config) -> Dispatcher:
     dp["config"] = config
 
     # Routerlarni ulash
-    dp.include_router(start_router)
-    dp.include_router(catalog_router)
-    dp.include_router(search_router)
-    dp.include_router(cart_router)
-    dp.include_router(other_router)
+    for r in (admin_router, start_router, catalog_router, search_router, cart_router, other_router):
+        r._parent_router = None
+        dp.include_router(r)
 
     return dp
 

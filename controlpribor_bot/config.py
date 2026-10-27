@@ -1,7 +1,8 @@
 import os
 import sys
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import List
 from dotenv import load_dotenv
 
 # .env faylini qidirib yuklash (joriy papka yoki ota papkadan)
@@ -18,6 +19,7 @@ class Config:
     ORDER_GROUP_ID: int
     DB_NAME: str = "database.db"
     BASE_URL: str = "https://controlpribor.uz"
+    ADMIN_IDS: List[int] = field(default_factory=list)
 
     @property
     def bot_token(self) -> str:
@@ -34,6 +36,9 @@ class Config:
     @property
     def db_name(self) -> str:
         return self.DB_NAME
+
+    def is_admin(self, user_id: int) -> bool:
+        return user_id in self.ADMIN_IDS
 
     @property
     def db_path(self) -> str:
@@ -60,10 +65,18 @@ class Config:
         db_name = os.getenv("DB_NAME", "database.db")
         base_url = os.getenv("BASE_URL", "https://controlpribor.uz")
 
+        admin_ids_raw = os.getenv("ADMIN_IDS", "")
+        admin_ids: List[int] = []
+        for x in admin_ids_raw.split(","):
+            cleaned = x.strip()
+            if cleaned.isdigit():
+                admin_ids.append(int(cleaned))
+
         return cls(
             BOT_TOKEN=bot_token,
             ORDER_GROUP_ID=order_group_id,
             DB_NAME=db_name,
             BASE_URL=base_url,
+            ADMIN_IDS=admin_ids,
         )
 

@@ -9,7 +9,7 @@ other_router = Router(name="other_router")
 @other_router.message(Command("help"))
 async def show_contacts(message: Message):
     text = (
-        "🏢 <b>'CONTROL PRIBOR' MChJ</b>\n"
+        "🏢 <b>'ASF Distribution' MChJ</b>\n"
         "<i>Sanoat elektrotexnikasi, avtomatika va KIPiA uskunalari bo'yicha ishonchli hamkoringiz!</i>\n\n"
         "📞 <b>Telefonlar:</b>\n"
         "• +998 (71) 200-00-00\n"

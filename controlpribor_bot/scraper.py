@@ -23,11 +23,21 @@ from controlpribor_bot.database.db_manager import DatabaseManager
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-# Top 16 mashhur brendlar lug'ati
+# Mashhur brendlar lug'ati
 KNOWN_BRANDS = [
-    "Fluke",
-    "Chint",
     "Akfix",
+    "Terafix",
+    "Tytan",
+    "Tess",
+    "Nilson",
+    "Oydin Electric",
+    "Nura Electric",
+    "Chint",
+    "Baumann Electric",
+    "Procab",
+    "Uzkabel",
+    "Lezard",
+    "Fluke",
     "Mastech",
     "UNI-T",
     "Testo",

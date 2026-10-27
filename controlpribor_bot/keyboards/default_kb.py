@@ -1,7 +1,7 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
 
-def get_main_menu_kb() -> ReplyKeyboardMarkup:
+def get_main_menu_kb(is_admin: bool = False) -> ReplyKeyboardMarkup:
     """Asosiy menyu reply klaviaturasi."""
     keyboard = [
         [
@@ -16,6 +16,9 @@ def get_main_menu_kb() -> ReplyKeyboardMarkup:
             KeyboardButton(text="📞 Bog'lanish / Menejer"),
         ],
     ]
+    if is_admin:
+        keyboard.append([KeyboardButton(text="⚙️ Admin panel")])
+
     return ReplyKeyboardMarkup(
         keyboard=keyboard,
         resize_keyboard=True,

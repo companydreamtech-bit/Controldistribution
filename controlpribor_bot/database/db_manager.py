@@ -15,6 +15,26 @@ from controlpribor_bot.database.models import (
 )
 
 
+DEFAULT_CATEGORIES = [
+    "AKFIX",
+    "TERAFIX",
+    "TYTAN",
+    "TESS",
+    "NILSON",
+    "OYDIN ELECTRIC",
+    "NURA ELECTRIC",
+    "CHINT",
+    "BAUMANN ELECTRIC",
+    "PROCAB",
+    "UZKABEL",
+    "gofra va korp",
+    "Metall shitlar",
+    "Instrumentlar",
+    "SAM shlanglar",
+    "LEZARD",
+]
+
+
 class DatabaseManager:
     def __init__(self, db_url: str = "sqlite+aiosqlite:///database.db"):
         self.engine = create_async_engine(db_url, echo=False)
@@ -34,6 +54,7 @@ class DatabaseManager:
             await conn.execute(text("PRAGMA temp_store = MEMORY;"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_products_brand ON products(brand_id);"))
             await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_products_cat ON products(category_id);"))
+        await self.seed_default_categories()
 
     async def close(self):
         await self.engine.dispose()
@@ -93,6 +114,16 @@ class DatabaseManager:
             return res.scalar_one_or_none()
 
     # --- Categories ---
+    async def seed_default_categories(self) -> None:
+        """Standart 16 ta kategoriyani bazaga kiritish (agar mavjud bo'lmasa)."""
+        async with self.session_factory() as session:
+            for cat_name in DEFAULT_CATEGORIES:
+                stmt = select(Category).where(Category.name == cat_name)
+                res = await session.execute(stmt)
+                if not res.scalar_one_or_none():
+                    session.add(Category(name=cat_name))
+            await session.commit()
+
     async def add_category(self, name: str, brand_id: Optional[int] = None) -> Category:
         async with self.session_factory() as session:
             stmt = select(Category).where(Category.name == name)
@@ -121,7 +152,7 @@ class DatabaseManager:
 
     async def get_all_categories(self, limit: int = 100) -> List[Category]:
         async with self.session_factory() as session:
-            stmt = select(Category).order_by(Category.name.asc()).limit(limit)
+            stmt = select(Category).order_by(Category.id.asc()).limit(limit)
             res = await session.execute(stmt)
             return list(res.scalars().all())
 
@@ -330,3 +361,57 @@ class DatabaseManager:
             await session.commit()
             await session.refresh(order)
             return order
+
+    # --- Admin CRUD Operations ---
+    async def delete_brand(self, brand_id: int) -> bool:
+        async with self.session_factory() as session:
+            stmt = delete(Brand).where(Brand.id == brand_id)
+            res = await session.execute(stmt)
+            await session.commit()
+            return res.rowcount > 0
+
+    async def delete_category(self, category_id: int) -> bool:
+        async with self.session_factory() as session:
+            stmt = delete(Category).where(Category.id == category_id)
+            res = await session.execute(stmt)
+            await session.commit()
+            return res.rowcount > 0
+
+    async def delete_product(self, product_id: int) -> bool:
+        async with self.session_factory() as session:
+            stmt = delete(Product).where(Product.id == product_id)
+            res = await session.execute(stmt)
+            await session.commit()
+            return res.rowcount > 0
+
+    async def update_product_fields(self, product_id: int, **kwargs) -> Optional[Product]:
+        async with self.session_factory() as session:
+            stmt = select(Product).where(Product.id == product_id)
+            res = await session.execute(stmt)
+            prod = res.scalar_one_or_none()
+            if not prod:
+                return None
+
+            for key, val in kwargs.items():
+                if hasattr(prod, key):
+                    setattr(prod, key, val)
+
+            await session.commit()
+            await session.refresh(prod)
+            return prod
+
+    async def get_stats(self) -> Dict[str, int]:
+        async with self.session_factory() as session:
+            users_c = (await session.execute(select(func.count(User.id)))).scalar() or 0
+            prods_c = (await session.execute(select(func.count(Product.id)))).scalar() or 0
+            cats_c = (await session.execute(select(func.count(Category.id)))).scalar() or 0
+            brands_c = (await session.execute(select(func.count(Brand.id)))).scalar() or 0
+            orders_c = (await session.execute(select(func.count(Order.id)))).scalar() or 0
+            return {
+                "users": users_c,
+                "products": prods_c,
+                "categories": cats_c,
+                "brands": brands_c,
+                "orders": orders_c,
+            }
+

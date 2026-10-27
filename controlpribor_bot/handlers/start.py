@@ -4,6 +4,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
 
+from controlpribor_bot.config import Config
 from controlpribor_bot.database.db_manager import DatabaseManager
 from controlpribor_bot.keyboards.default_kb import get_main_menu_kb, get_contact_kb
 
@@ -16,17 +17,18 @@ class RegistrationStates(StatesGroup):
 
 
 @start_router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext, db: DatabaseManager):
+async def cmd_start(message: Message, state: FSMContext, db: DatabaseManager, config: Config):
     user = await db.get_user_by_telegram_id(message.from_user.id)
     if user:
         await state.clear()
+        is_admin = config.is_admin(message.from_user.id)
         text = (
             f"👋 <b>Assalomu alaykum, {user.full_name}!</b>\n\n"
-            f"⚡️ <b>«CONTROL PRIBOR»</b> rasmiy savdo botiga xush kelibsiz!\n\n"
+            f"⚡️ <b>«ASF Distribution»</b> rasmiy savdo botiga xush kelibsiz!\n\n"
             f"🏭 Biz O'zbekistonda sanoat elektrotexnikasi, KIPiA, avtomatika va o'lchov asboblarini ishonchli yetkazib beruvchimiz.\n\n"
             f"✨ <b>Siz uchun mavjud imkoniyatlar:</b>\n"
             f"▫️ <b>🏷 Brendlar</b> — Dunyoning yetakchi brendlari bo'yicha saralangan katalog\n"
-            f"▫️ <b>📁 Barcha kategoriyalar</b> — KIPiA, pirometrlar, multimetrlar, relelar\n"
+            f"▫️ <b>📁 Barcha kategoriyalar</b> — AKFIX, CHINT, UZKABEL, Metall shitlar va boshqalar\n"
             f"▫️ <b>🔍 Tovar qidirish</b> — Model yoki kalit so'z orqali bir lahzada topish\n"
             f"▫️ <b>🛒 Savatcha</b> — Xaridlarni qulay jamlash va guruh orqali buyurtma berish\n"
             f"▫️ <b>📞 Bog'lanish</b> — Mutaxassis konsultatsiyasi va texnik yordam\n\n"
@@ -34,14 +36,14 @@ async def cmd_start(message: Message, state: FSMContext, db: DatabaseManager):
         )
         await message.answer(
             text,
-            reply_markup=get_main_menu_kb(),
+            reply_markup=get_main_menu_kb(is_admin=is_admin),
             parse_mode="HTML",
         )
     else:
         await state.set_state(RegistrationStates.waiting_for_name)
         text = (
             f"👋 <b>Assalomu alaykum!</b>\n\n"
-            f"⚡️ <b>«CONTROL PRIBOR»</b> rasmiy savdo botiga xush kelibsiz!\n\n"
+            f"⚡️ <b>«ASF Distribution»</b> rasmiy savdo botiga xush kelibsiz!\n\n"
             f"🏭 Bu yerda siz sanoat elektrotexnikasi, KIPiA, o'lchov asboblari va materiallarni to'g'ridan-to'g'ri birinchi qo'ldan xarid qilishingiz mumkin.\n\n"
             f"🔐 <i>Buyurtmalaringizni tezkor rasmiylashtirish va do'konimiz imkoniyatlaridan to'liq foydalanish uchun, iltimos, ro'yxatdan o'ting.</i>\n\n"
             f"👤 <b>Ism va familiyangizni kiriting:</b>\n"
@@ -79,7 +81,7 @@ async def process_name(message: Message, state: FSMContext):
 
 
 @start_router.message(RegistrationStates.waiting_for_phone, F.contact)
-async def process_phone_contact(message: Message, state: FSMContext, db: DatabaseManager):
+async def process_phone_contact(message: Message, state: FSMContext, db: DatabaseManager, config: Config):
     phone = message.contact.phone_number
     if not phone.startswith("+"):
         phone = "+" + phone
@@ -101,13 +103,13 @@ async def process_phone_contact(message: Message, state: FSMContext, db: Databas
     )
     await message.answer(
         text,
-        reply_markup=get_main_menu_kb(),
+        reply_markup=get_main_menu_kb(is_admin=config.is_admin(message.from_user.id)),
         parse_mode="HTML",
     )
 
 
 @start_router.message(RegistrationStates.waiting_for_phone, F.text)
-async def process_phone_text(message: Message, state: FSMContext, db: DatabaseManager):
+async def process_phone_text(message: Message, state: FSMContext, db: DatabaseManager, config: Config):
     phone = message.text.strip()
     cleaned_digits = "".join(filter(str.isdigit, phone))
     if len(cleaned_digits) < 9:
@@ -139,6 +141,6 @@ async def process_phone_text(message: Message, state: FSMContext, db: DatabaseMa
     )
     await message.answer(
         text,
-        reply_markup=get_main_menu_kb(),
+        reply_markup=get_main_menu_kb(is_admin=config.is_admin(message.from_user.id)),
         parse_mode="HTML",
     )

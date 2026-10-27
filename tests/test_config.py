@@ -17,3 +17,12 @@ def test_config_missing_bot_token(monkeypatch):
     monkeypatch.delenv("BOT_TOKEN", raising=False)
     with pytest.raises(ValueError, match="BOT_TOKEN"):
         Config.load()
+
+def test_config_admin_ids(monkeypatch):
+    monkeypatch.setenv("BOT_TOKEN", "123456:TEST_TOKEN")
+    monkeypatch.setenv("ADMIN_IDS", "12345, 67890, abc")
+    config = Config.load()
+    assert config.ADMIN_IDS == [12345, 67890]
+    assert config.is_admin(12345) is True
+    assert config.is_admin(99999) is False
+
