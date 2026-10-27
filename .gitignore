@@ -40,3 +40,6 @@ controlpribor_bot/.env
 .superpowers/
 .idea/
 .vscode/
+
+# Kanal importi rasmlari (serverda DB volume yonida saqlanadi)
+controlpribor_bot/media/

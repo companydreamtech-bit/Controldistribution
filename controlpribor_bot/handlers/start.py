@@ -1,3 +1,4 @@
+import html
 from aiogram import Router, F
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
@@ -23,7 +24,7 @@ async def cmd_start(message: Message, state: FSMContext, db: DatabaseManager, co
         await state.clear()
         is_admin = config.is_admin(message.from_user.id)
         text = (
-            f"👋 <b>Assalomu alaykum, {user.full_name}!</b>\n\n"
+            f"👋 <b>Assalomu alaykum, {html.escape(user.full_name)}!</b>\n\n"
             f"⚡️ <b>«ASF Distribution»</b> rasmiy savdo botiga xush kelibsiz!\n\n"
             f"🏭 Biz O'zbekistonda sanoat elektrotexnikasi, KIPiA, avtomatika va o'lchov asboblarini ishonchli yetkazib beruvchimiz.\n\n"
             f"✨ <b>Siz uchun mavjud imkoniyatlar:</b>\n"
@@ -69,7 +70,7 @@ async def process_name(message: Message, state: FSMContext):
     await state.update_data(full_name=name)
     await state.set_state(RegistrationStates.waiting_for_phone)
     text = (
-        f"Ajoyib, <b>{name}</b>! 🤝\n\n"
+        f"Ajoyib, <b>{html.escape(name)}</b>! 🤝\n\n"
         f"Endi buyurtmalarni tasdiqlash va hisob-faktura uchun telefon raqamingizni yuboring.\n\n"
         f"👇 Pastdagi <b>«📱 Telefon raqamni yuborish»</b> tugmasini bosing yoki raqamingizni yozing:"
     )
@@ -98,7 +99,7 @@ async def process_phone_contact(message: Message, state: FSMContext, db: Databas
 
     text = (
         f"🎉 <b>Tabriklaymiz, muvaffaqiyatli ro'yxatdan o'tdingiz!</b>\n\n"
-        f"Hurmatli <b>{full_name}</b>, siz uchun katalog va buyurtma xizmatlari to'liq ochildi.\n\n"
+        f"Hurmatli <b>{html.escape(full_name)}</b>, siz uchun katalog va buyurtma xizmatlari to'liq ochildi.\n\n"
         f"🛒 Kerakli uskuna va asboblarni tanlash uchun quyidagi menyudan foydalaning:"
     )
     await message.answer(
@@ -136,7 +137,7 @@ async def process_phone_text(message: Message, state: FSMContext, db: DatabaseMa
 
     text = (
         f"🎉 <b>Tabriklaymiz, muvaffaqiyatli ro'yxatdan o'tdingiz!</b>\n\n"
-        f"Hurmatli <b>{full_name}</b>, siz uchun katalog va buyurtma xizmatlari to'liq ochildi.\n\n"
+        f"Hurmatli <b>{html.escape(full_name)}</b>, siz uchun katalog va buyurtma xizmatlari to'liq ochildi.\n\n"
         f"🛒 Kerakli uskuna va asboblarni tanlash uchun quyidagi menyudan foydalaning:"
     )
     await message.answer(

@@ -25,7 +25,8 @@ def test_main_menu_kb_with_admin():
 
 def test_admin_keyboards():
     main_kb = get_admin_main_kb()
-    assert len(main_kb.inline_keyboard) == 3
+    assert len(main_kb.inline_keyboard) == 4
+    assert any(btn.callback_data == "admin_import_channel" for row in main_kb.inline_keyboard for btn in row)
 
     prod_kb = get_admin_products_kb()
     assert any(btn.callback_data == "admin_prod_add" for row in prod_kb.inline_keyboard for btn in row)

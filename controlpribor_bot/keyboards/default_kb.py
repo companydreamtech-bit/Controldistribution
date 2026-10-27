@@ -39,3 +39,14 @@ def get_contact_kb() -> ReplyKeyboardMarkup:
         one_time_keyboard=True,
         input_field_placeholder="Kontaktni ulashish tugmasini bosing...",
     )
+
+
+# Asosiy menyu tugmalari matnlari (FSM holatlarida ma'lumot sifatida qabul qilinmasligi uchun)
+MAIN_MENU_TEXTS = (
+    "🏷 Brendlar",
+    "📁 Barcha kategoriyalar",
+    "🔍 Tovar qidirish",
+    "🛒 Savatcha",
+    "📞 Bog'lanish / Menejer",
+    "⚙️ Admin panel",
+)

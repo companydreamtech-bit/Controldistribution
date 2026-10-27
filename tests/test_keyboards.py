@@ -62,3 +62,20 @@ def test_inline_product_detail_and_cart():
     assert "cart_del_1" in cart_cb
     assert "checkout_order" in cart_cb
     assert "clear_cart" in cart_cb
+
+
+def test_brand_and_category_icons():
+    from types import SimpleNamespace
+    from controlpribor_bot.keyboards.icons import brand_icon, category_icon
+    from controlpribor_bot.keyboards.inline_kb import get_brands_kb, get_categories_kb
+
+    assert brand_icon("BAUMANN ELECTRIC") == "💡"
+    assert brand_icon("Noma'lum brend") == "🏷"
+    assert category_icon("Instrumentlar") == "🛠"
+    assert category_icon("AKFIX") == "🧴"  # brend nomli kategoriya
+    assert category_icon("Yangi kategoriya") == "📁"
+
+    brands_kb = get_brands_kb([SimpleNamespace(id=1, name="CHINT")])
+    assert brands_kb.inline_keyboard[0][0].text == "⚡ CHINT"
+    cats_kb = get_categories_kb([SimpleNamespace(id=2, name="Kabellar")])
+    assert cats_kb.inline_keyboard[0][0].text == "🔗 Kabellar"

@@ -1,5 +1,5 @@
 from typing import List, Optional, Tuple, Dict, Any
-from sqlalchemy import select, update, delete, func, text
+from sqlalchemy import event, select, update, delete, func, text, or_
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import selectinload
 
@@ -43,6 +43,16 @@ class DatabaseManager:
             class_=AsyncSession,
             expire_on_commit=False,
         )
+        # SQLite tashqi kalitlarni (ON DELETE SET NULL / CASCADE) faqat har bir ulanishda
+        # PRAGMA foreign_keys yoqilganda bajaradi.
+        if self.engine.dialect.name == "sqlite":
+            event.listen(self.engine.sync_engine, "connect", self._enable_sqlite_fk)
+
+    @staticmethod
+    def _enable_sqlite_fk(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys = ON;")
+        cursor.close()
 
     async def init_db(self):
         async with self.engine.begin() as conn:
@@ -87,13 +97,20 @@ class DatabaseManager:
             return res.scalar_one_or_none()
 
     # --- Brands ---
-    async def add_brand(self, name: str, slug: str) -> Brand:
+    async def find_brand(self, name: str, slug: str, exclude_id: Optional[int] = None) -> Optional[Brand]:
+        """Nomi (katta-kichik harfsiz) yoki slug'i mos keladigan brendni topish."""
         async with self.session_factory() as session:
-            stmt = select(Brand).where(Brand.name == name)
-            res = await session.execute(stmt)
-            existing = res.scalar_one_or_none()
-            if existing:
-                return existing
+            stmt = select(Brand).where(or_(func.lower(Brand.name) == name.lower(), Brand.slug == slug))
+            if exclude_id is not None:
+                stmt = stmt.where(Brand.id != exclude_id)
+            res = await session.execute(stmt.limit(1))
+            return res.scalar_one_or_none()
+
+    async def add_brand(self, name: str, slug: str) -> Brand:
+        existing = await self.find_brand(name, slug)
+        if existing:
+            return existing
+        async with self.session_factory() as session:
 
             brand = Brand(name=name, slug=slug)
             session.add(brand)
@@ -113,6 +130,20 @@ class DatabaseManager:
             res = await session.execute(stmt)
             return res.scalar_one_or_none()
 
+    async def update_brand(self, brand_id: int, name: str, slug: str) -> Optional[Brand]:
+        """Brend nomini yangilash. Nom yoki slug band bo'lsa ValueError."""
+        if await self.find_brand(name, slug, exclude_id=brand_id):
+            raise ValueError("Bunday nomli brend allaqachon mavjud")
+        async with self.session_factory() as session:
+            brand = await session.get(Brand, brand_id)
+            if not brand:
+                return None
+            brand.name = name
+            brand.slug = slug
+            await session.commit()
+            await session.refresh(brand)
+            return brand
+
     # --- Categories ---
     async def seed_default_categories(self) -> None:
         """Standart 16 ta kategoriyani bazaga kiritish (agar mavjud bo'lmasa)."""
@@ -124,13 +155,20 @@ class DatabaseManager:
                     session.add(Category(name=cat_name))
             await session.commit()
 
-    async def add_category(self, name: str, brand_id: Optional[int] = None) -> Category:
+    async def find_category(self, name: str, exclude_id: Optional[int] = None) -> Optional[Category]:
+        """Nomi (katta-kichik harfsiz) mos keladigan kategoriyani topish."""
         async with self.session_factory() as session:
-            stmt = select(Category).where(Category.name == name)
-            res = await session.execute(stmt)
-            existing = res.scalar_one_or_none()
-            if existing:
-                return existing
+            stmt = select(Category).where(func.lower(Category.name) == name.lower())
+            if exclude_id is not None:
+                stmt = stmt.where(Category.id != exclude_id)
+            res = await session.execute(stmt.limit(1))
+            return res.scalar_one_or_none()
+
+    async def add_category(self, name: str, brand_id: Optional[int] = None) -> Category:
+        existing = await self.find_category(name)
+        if existing:
+            return existing
+        async with self.session_factory() as session:
 
             cat = Category(name=name, brand_id=brand_id)
             session.add(cat)
@@ -150,17 +188,33 @@ class DatabaseManager:
             res = await session.execute(stmt)
             return list(res.scalars().all())
 
-    async def get_all_categories(self, limit: int = 100) -> List[Category]:
+    async def get_all_categories(self, limit: Optional[int] = None) -> List[Category]:
         async with self.session_factory() as session:
-            stmt = select(Category).order_by(Category.id.asc()).limit(limit)
+            stmt = select(Category).options(selectinload(Category.brand)).order_by(Category.id.asc())
+            if limit:
+                stmt = stmt.limit(limit)
             res = await session.execute(stmt)
             return list(res.scalars().all())
 
     async def get_category_by_id(self, category_id: int) -> Optional[Category]:
         async with self.session_factory() as session:
-            stmt = select(Category).where(Category.id == category_id)
+            stmt = select(Category).options(selectinload(Category.brand)).where(Category.id == category_id)
             res = await session.execute(stmt)
             return res.scalar_one_or_none()
+
+    async def update_category_fields(self, category_id: int, **kwargs) -> Optional[Category]:
+        """Kategoriya maydonlarini yangilash (name, brand_id). Nom band bo'lsa ValueError."""
+        if "name" in kwargs and await self.find_category(kwargs["name"], exclude_id=category_id):
+            raise ValueError("Bunday nomli kategoriya allaqachon mavjud")
+        async with self.session_factory() as session:
+            cat = await session.get(Category, category_id)
+            if not cat:
+                return None
+            for key, val in kwargs.items():
+                if hasattr(cat, key):
+                    setattr(cat, key, val)
+            await session.commit()
+        return await self.get_category_by_id(category_id)
 
     # --- Products ---
     async def add_product(
@@ -211,6 +265,34 @@ class DatabaseManager:
             )
             res = await session.execute(stmt)
             return res.scalar_one_or_none()
+
+    async def get_product_by_name(self, name: str) -> Optional[Product]:
+        async with self.session_factory() as session:
+            stmt = select(Product).where(func.lower(Product.name) == name.lower()).limit(1)
+            res = await session.execute(stmt)
+            return res.scalar_one_or_none()
+
+    async def get_product_by_url(self, product_url: str) -> Optional[Product]:
+        async with self.session_factory() as session:
+            stmt = select(Product).where(Product.product_url == product_url).limit(1)
+            res = await session.execute(stmt)
+            return res.scalar_one_or_none()
+
+    async def count_products(
+        self, brand_id: Optional[int] = None, category_id: Optional[int] = None
+    ) -> int:
+        async with self.session_factory() as session:
+            stmt = select(func.count(Product.id))
+            if brand_id is not None:
+                stmt = stmt.where(Product.brand_id == brand_id)
+            if category_id is not None:
+                stmt = stmt.where(Product.category_id == category_id)
+            return (await session.execute(stmt)).scalar() or 0
+
+    async def count_categories_of_brand(self, brand_id: int) -> int:
+        async with self.session_factory() as session:
+            stmt = select(func.count(Category.id)).where(Category.brand_id == brand_id)
+            return (await session.execute(stmt)).scalar() or 0
 
     async def get_products_by_category(
         self, category_id: int, brand_id: Optional[int] = None, page: int = 1, limit: int = 6
@@ -397,8 +479,8 @@ class DatabaseManager:
                     setattr(prod, key, val)
 
             await session.commit()
-            await session.refresh(prod)
-            return prod
+        # Brend va kategoriya bilan qayta yuklash (sessiyadan tashqarida ishlatish uchun)
+        return await self.get_product_by_id(product_id)
 
     async def get_stats(self) -> Dict[str, int]:
         async with self.session_factory() as session:

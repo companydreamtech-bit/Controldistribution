@@ -1,6 +1,8 @@
 from typing import List, Dict, Any, Optional
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+from controlpribor_bot.keyboards.icons import brand_icon, category_icon
+
 
 def get_brands_kb(brands: List[Any], page: int = 1, per_page: int = 8) -> InlineKeyboardMarkup:
     """Brendlar ro'yxati inline klaviaturasi (2 tadan qatorda)."""
@@ -13,7 +15,7 @@ def get_brands_kb(brands: List[Any], page: int = 1, per_page: int = 8) -> Inline
     for b in current_page_brands:
         b_id = b["id"] if isinstance(b, dict) else b.id
         b_name = b["name"] if isinstance(b, dict) else b.name
-        row.append(InlineKeyboardButton(text=f"🏷 {b_name}", callback_data=f"brand_{b_id}"))
+        row.append(InlineKeyboardButton(text=f"{brand_icon(b_name)} {b_name}", callback_data=f"brand_{b_id}"))
         if len(row) == 2:
             keyboard.append(row)
             row = []
@@ -49,7 +51,7 @@ def get_categories_kb(
         c_name = c["name"] if isinstance(c, dict) else c.name
         cb_data = f"cat_{c_id}_{brand_id}" if brand_id else f"cat_{c_id}"
         keyboard.append([
-            InlineKeyboardButton(text=f"📁 {c_name}", callback_data=cb_data)
+            InlineKeyboardButton(text=f"{category_icon(c_name)} {c_name}", callback_data=cb_data)
         ])
 
     total_pages = max(1, (len(categories) + per_page - 1) // per_page)

@@ -1,3 +1,4 @@
+import html
 import math
 from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
@@ -60,7 +61,7 @@ async def execute_search(message: Message, query: str, page: int, db: DatabaseMa
 
     if not products:
         await message.answer(
-            f"🔍 '{query}' so'rovi bo'yicha hech qanday mahsulot topilmadi.\n\n"
+            f"🔍 '{html.escape(query)}' so'rovi bo'yicha hech qanday mahsulot topilmadi.\n\n"
             "Iltimos, model yoki nomini to'g'ri yozganingizni tekshirib ko'ring yoki boshqa so'z bilan qidiring."
         )
         return
@@ -74,7 +75,7 @@ async def execute_search(message: Message, query: str, page: int, db: DatabaseMa
         search_query=query,
     )
     await message.answer(
-        f"🔍 <b>'{query}'</b> bo'yicha topildi ({total} ta mahsulot):\n\nKerakli mahsulotni tanlang:",
+        f"🔍 <b>'{html.escape(query)}'</b> bo'yicha topildi ({total} ta mahsulot):\n\nKerakli mahsulotni tanlang:",
         reply_markup=kb,
         parse_mode="HTML",
     )
@@ -103,7 +104,7 @@ async def handle_search_pagination(callback: CallbackQuery, state: FSMContext, d
         search_query=query,
     )
     await callback.message.edit_text(
-        f"🔍 <b>'{query}'</b> bo'yicha topildi ({total} ta mahsulot):",
+        f"🔍 <b>'{html.escape(query)}'</b> bo'yicha topildi ({total} ta mahsulot):",
         reply_markup=kb,
         parse_mode="HTML",
     )
@@ -120,7 +121,7 @@ async def back_to_search_results(callback: CallbackQuery, state: FSMContext, db:
         kb = get_products_list_kb(products, page=1, total_pages=total_pages)
         await callback.message.delete()
         await callback.message.answer(
-            f"🔍 <b>'{query}'</b> natijalari:",
+            f"🔍 <b>'{html.escape(query)}'</b> natijalari:",
             reply_markup=kb,
             parse_mode="HTML",
         )

@@ -1,5 +1,7 @@
 import html
+import re
 from datetime import datetime
+from typing import Optional
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 
@@ -10,13 +12,36 @@ from controlpribor_bot.keyboards.inline_kb import get_cart_kb
 cart_router = Router(name="cart_router")
 
 
+def parse_price(price_str: str) -> tuple[Optional[float], str]:
+    """Narxni (miqdor, valyuta) ga ajratish: "1 500 000 so'm" -> (1500000, "so'm"), "0.87$" -> (0.87, "$").
+
+    Diapazon ("0.4$ – 1.1$", variantli tovar) va "Kelishilgan holda" -> (None, "").
+    """
+    price_str = price_str or ""
+    if "$" in price_str:
+        amounts = re.findall(r"\d{1,3}(?:[  ]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?", price_str)
+        if len(amounts) != 1:
+            return None, ""
+        return float(re.sub(r"[  ]", "", amounts[0]).replace(",", ".")), "$"
+    if "–" in price_str:
+        return None, ""
+    digits = "".join(filter(str.isdigit, price_str))
+    return (float(digits), "so'm") if digits else (None, "")
+
+
+def format_amount(value: float, currency: str) -> str:
+    if currency == "$":
+        return f"{value:,.2f}".rstrip("0").rstrip(".").replace(",", " ") + "$"
+    return f"{int(value):,}".replace(",", " ") + " so'm"
+
+
 def format_cart_message(items: list) -> tuple[str, str]:
-    """Savatcha matnini va umumiy summani formatlash."""
+    """Savatcha matnini va umumiy summani formatlash (so'm va $ alohida jamlanadi)."""
     if not items:
         return "🛒 <b>Sizning savatchangiz bo'sh.</b>\n\nKatalogdan kerakli tovarlarni tanlang!", "0 so'm"
 
     lines = ["🛒 <b>SIZNING SAVATCHANGIZ:</b>\n"]
-    total_numeric = 0
+    totals = {"so'm": 0.0, "$": 0.0}
     has_custom_price = False
 
     for idx, itm in enumerate(items, start=1):
@@ -24,23 +49,23 @@ def format_cart_message(items: list) -> tuple[str, str]:
         qty = itm["quantity"]
         price_str = itm["price"]
 
-        # Narxdan sonlarni ajratish
-        digits = "".join(filter(str.isdigit, price_str))
-        if digits:
-            item_price = int(digits)
+        item_price, currency = parse_price(price_str)
+        if item_price is not None:
             item_total = item_price * qty
-            total_numeric += item_total
+            totals[currency] += item_total
             lines.append(
                 f"<b>{idx}. {name}</b>\n"
-                f"   {qty} dona × {item_price:,}".replace(",", " ") + f" so'm = <b>{item_total:,}".replace(",", " ") + " so'm</b>\n"
+                f"   {qty} dona × {format_amount(item_price, currency)} = "
+                f"<b>{format_amount(item_total, currency)}</b>\n"
             )
         else:
             has_custom_price = True
-            lines.append(f"<b>{idx}. {name}</b>\n   {qty} dona × <i>{price_str}</i>\n")
+            lines.append(f"<b>{idx}. {name}</b>\n   {qty} dona × <i>{html.escape(price_str)}</i>\n")
 
     lines.append("────────────────────────")
-    if total_numeric > 0:
-        total_formatted = f"{total_numeric:,}".replace(",", " ") + " so'm"
+    parts = [format_amount(total, cur) for cur, total in totals.items() if total > 0]
+    if parts:
+        total_formatted = " + ".join(parts)
         if has_custom_price:
             total_formatted += " (+ kelishilgan tovarlar)"
     else:
@@ -135,7 +160,9 @@ async def checkout_order_handler(callback: CallbackQuery, db: DatabaseManager, b
 
     order_lines = []
     for idx, itm in enumerate(items, start=1):
-        order_lines.append(f"{idx}. {itm['product_name']} — {itm['quantity']} dona (Narxi: {itm['price']})")
+        order_lines.append(
+            f"{idx}. {html.escape(itm['product_name'])} — {itm['quantity']} dona (Narxi: {html.escape(itm['price'])})"
+        )
 
     items_block = "\n".join(order_lines)
     username = f"@{callback.from_user.username}" if callback.from_user.username else f"ID: {callback.from_user.id}"

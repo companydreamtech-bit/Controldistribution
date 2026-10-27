@@ -8,16 +8,17 @@ other_router = Router(name="other_router")
 @other_router.message(F.text == "📞 Bog'lanish / Menejer")
 @other_router.message(Command("help"))
 async def show_contacts(message: Message):
+    # Ma'lumotlar rasmiy kanaldan olingan: https://t.me/asfdistribution
     text = (
-        "🏢 <b>'ASF Distribution' MChJ</b>\n"
-        "<i>Sanoat elektrotexnikasi, avtomatika va KIPiA uskunalari bo'yicha ishonchli hamkoringiz!</i>\n\n"
+        "🏢 <b>ASF Distribution — rasmiy distribyutor</b>\n"
+        "<i>AKFIX • CHINT • BAUMANN • PROFMET • NURA • NILSON • UZKABEL • PROCAB</i>\n\n"
+        "⚡️ Elektr tovarlari | 🔌 Kabellar | 💡 Yoritish mahsulotlari\n"
+        "📦 OPTOM narxlar va doimiy sklad mavjud\n\n"
         "📞 <b>Telefonlar:</b>\n"
-        "• +998 (71) 200-00-00\n"
-        "• +998 (90) 123-45-67 (Menejer)\n\n"
-        "💬 <b>Telegram:</b> @controlpribor_admin\n"
-        "📢 <b>Rasmiy kanal:</b> @controlpribor\n\n"
-        "📍 <b>Manzil:</b> Toshkent sh., Olmazor tumani, Usta Shirin bozori, 1-qator\n"
-        "⏰ <b>Ish vaqti:</b> 09:00 - 18:00 (Dushanba - Shanba)\n\n"
+        "• +998 50 515 51 11\n"
+        "• +998 99 901 59 11\n\n"
+        "💬 <b>Telegram:</b> @S_77777_S, @controldistribution\n"
+        "📢 <b>Rasmiy kanal:</b> @asfdistribution\n\n"
         "Savollaringiz bo'lsa, mutaxassislarimizga murojaat qiling!"
     )
     await message.answer(text, parse_mode="HTML")
