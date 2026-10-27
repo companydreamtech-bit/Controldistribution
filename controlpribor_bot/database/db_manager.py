@@ -35,6 +35,19 @@ DEFAULT_CATEGORIES = [
 ]
 
 
+# Kanaldagi asosiy brendlar (t.me/asfdistribution tavsifidagi tartibda) — ro'yxat boshida turadi
+FEATURED_BRANDS = [
+    "akfix",
+    "chint",
+    "baumann electric",
+    "profmet",
+    "nura electric",
+    "nilson",
+    "uzkabel",
+    "procab",
+]
+OTHER_BRANDS_NAME = "boshqa brendlar"
+
 class DatabaseManager:
     def __init__(self, db_url: str = "sqlite+aiosqlite:///database.db"):
         self.engine = create_async_engine(db_url, echo=False)
@@ -119,10 +132,20 @@ class DatabaseManager:
             return brand
 
     async def get_brands(self) -> List[Brand]:
+        """Asosiy brendlar tepada, qolganlari alifbo bo'yicha, "Boshqa brendlar" eng oxirida."""
         async with self.session_factory() as session:
-            stmt = select(Brand).order_by(Brand.name.asc())
-            res = await session.execute(stmt)
-            return list(res.scalars().all())
+            res = await session.execute(select(Brand))
+            brands = list(res.scalars().all())
+
+        def sort_key(brand: Brand):
+            name = brand.name.strip().lower()
+            if name in FEATURED_BRANDS:
+                return (0, FEATURED_BRANDS.index(name), name)
+            if name == OTHER_BRANDS_NAME:
+                return (2, 0, name)
+            return (1, 0, name)
+
+        return sorted(brands, key=sort_key)
 
     async def get_brand_by_id(self, brand_id: int) -> Optional[Brand]:
         async with self.session_factory() as session:

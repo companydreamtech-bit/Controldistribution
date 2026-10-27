@@ -151,3 +151,12 @@ async def test_default_categories(db: DatabaseManager):
     for name in expected:
         assert name in cat_names
 
+
+
+@pytest.mark.asyncio
+async def test_brands_order_featured_first_other_last(db: DatabaseManager):
+    for name in ["Fluke", "Boshqa brendlar", "NILSON", "balance", "AKFIX", "CHINT", "Mastech"]:
+        await db.add_brand(name=name, slug=name.lower().replace(" ", "-"))
+
+    names = [b.name for b in await db.get_brands()]
+    assert names == ["AKFIX", "CHINT", "NILSON", "balance", "Fluke", "Mastech", "Boshqa brendlar"]
