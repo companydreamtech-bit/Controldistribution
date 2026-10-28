@@ -538,6 +538,48 @@ class DatabaseManager:
             await session.commit()
             return res.rowcount > 0
 
+    @staticmethod
+    def _not_from_channel(url_prefix: str):
+        return or_(Product.product_url.is_(None), ~Product.product_url.startswith(url_prefix, autoescape=True))
+
+    async def count_products_not_from(self, url_prefix: str) -> int:
+        """Manbasi url_prefix bo'lmagan (masalan, kanaldan kelmagan eski) tovarlar soni."""
+        async with self.session_factory() as session:
+            stmt = select(func.count(Product.id)).where(self._not_from_channel(url_prefix))
+            return (await session.execute(stmt)).scalar() or 0
+
+    async def delete_products_not_from(self, url_prefix: str) -> Tuple[List[int], int]:
+        """Kanaldan kelmagan tovarlarni o'chirish; shular tufayli bo'sh qolgan brendlar ham o'chiriladi.
+
+        Savatchadagi yozuvlar CASCADE bilan o'chadi, buyurtmalar tarixi (order_items) saqlanadi.
+        Qaytaradi: (o'chirilgan tovar ID'lari, o'chirilgan brendlar soni).
+        """
+        async with self.session_factory() as session:
+            rows = (await session.execute(
+                select(Product.id, Product.brand_id).where(self._not_from_channel(url_prefix))
+            )).all()
+            product_ids = [r[0] for r in rows]
+            brand_ids = {r[1] for r in rows if r[1] is not None}
+            if not product_ids:
+                return [], 0
+
+            await session.execute(delete(Product).where(Product.id.in_(product_ids)))
+
+            removed_brands = 0
+            for brand_id in brand_ids:
+                has_products = (await session.execute(
+                    select(func.count(Product.id)).where(Product.brand_id == brand_id)
+                )).scalar()
+                has_categories = (await session.execute(
+                    select(func.count(Category.id)).where(Category.brand_id == brand_id)
+                )).scalar()
+                if not has_products and not has_categories:
+                    await session.execute(delete(Brand).where(Brand.id == brand_id))
+                    removed_brands += 1
+
+            await session.commit()
+            return product_ids, removed_brands
+
     async def update_product_fields(self, product_id: int, **kwargs) -> Optional[Product]:
         async with self.session_factory() as session:
             stmt = select(Product).where(Product.id == product_id)
