@@ -6,7 +6,6 @@ from controlpribor_bot.keyboards.default_kb import get_main_menu_kb
 from controlpribor_bot.keyboards.admin_kb import (
     get_admin_main_kb,
     get_admin_products_kb,
-    get_admin_brands_kb,
     get_admin_categories_kb,
     get_product_admin_actions_kb,
 )
@@ -31,9 +30,7 @@ def test_admin_keyboards():
 
     prod_kb = get_admin_products_kb()
     assert any(btn.callback_data == "admin_prod_add" for row in prod_kb.inline_keyboard for btn in row)
-
-    brand_kb = get_admin_brands_kb()
-    assert any(btn.callback_data == "admin_brand_add" for row in brand_kb.inline_keyboard for btn in row)
+    assert any(btn.callback_data == "admin_cat_list_1" for row in prod_kb.inline_keyboard for btn in row)
 
     cat_kb = get_admin_categories_kb()
     assert any(btn.callback_data == "admin_cat_add" for row in cat_kb.inline_keyboard for btn in row)

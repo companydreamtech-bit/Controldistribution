@@ -242,23 +242,29 @@ class DatabaseManager:
             res = await session.execute(stmt)
             return list(res.scalars().all())
 
-    async def get_shop_categories(self) -> List[Category]:
+    async def get_category_product_counts(self) -> Dict[int, int]:
+        """{kategoriya_id: tovarlar soni}."""
+        async with self.session_factory() as session:
+            rows = await session.execute(
+                select(Product.category_id, func.count(Product.id)).group_by(Product.category_id)
+            )
+            return {cat_id: count for cat_id, count in rows.all() if cat_id is not None}
+
+    async def get_shop_categories(self, include_empty: bool = False) -> List[Category]:
         """"📦 Tovarlar" menyusi: 16 ta asosiy kategoriya belgilangan tartibda (bo'sh bo'lsa ham),
-        keyin tovari bor boshqa kategoriyalar, "Boshqa tovarlar" eng oxirida."""
+        keyin tovari bor boshqa kategoriyalar, "Boshqa tovarlar" eng oxirida.
+
+        include_empty=True — admin uchun: tovarsiz qo'shimcha kategoriyalar ham shu tartibda ko'rsatiladi.
+        """
         order = {name.lower(): idx for idx, name in enumerate(DEFAULT_CATEGORIES)}
         other_key = OTHER_PRODUCTS_CATEGORY.lower()
-        async with self.session_factory() as session:
-            counts = dict(
-                (await session.execute(
-                    select(Product.category_id, func.count(Product.id)).group_by(Product.category_id)
-                )).all()
-            )
+        counts = await self.get_category_product_counts()
         result = []
         for cat in await self.get_all_categories():
             key = cat.name.strip().lower()
             if key in order:
                 result.append(((0, order[key], key), cat))
-            elif counts.get(cat.id):
+            elif include_empty or counts.get(cat.id):
                 result.append(((2 if key == other_key else 1, 0, key), cat))
         return [cat for _, cat in sorted(result, key=lambda item: item[0])]
 

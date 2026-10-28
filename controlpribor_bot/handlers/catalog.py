@@ -189,10 +189,12 @@ async def handle_product_click(callback: CallbackQuery, db: DatabaseManager, con
     desc = product.description or ""
     if len(desc) > 600:
         desc = desc[:600].rstrip() + "…"
+    # Brend alohida bo'lim emas: kanaldan kelgan tovarda bo'lsa, ma'lumot sifatida ko'rsatiladi
+    brand_line = f"🏷 <b>Brend:</b> {html.escape(product.brand.name)}\n" if product.brand else ""
     text = (
         f"📦 <b>{html.escape(product.name)}</b>\n\n"
-        f"🏷 <b>Brend:</b> {html.escape(product.brand.name) if product.brand else 'Boshqa brendlar'}\n"
-        f"📁 <b>Toifa:</b> {html.escape(product.category.name) if product.category else 'Umumiy'}\n"
+        f"📁 <b>Bo'lim:</b> {html.escape(product.category.name) if product.category else 'Umumiy'}\n"
+        f"{brand_line}"
         f"💰 <b>Narxi:</b> <code>{html.escape(product.price or '')}</code>\n\n"
         f"📝 <i>{html.escape(desc)}</i>"
     )

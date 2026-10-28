@@ -5,24 +5,23 @@ import pytest
 import pytest_asyncio
 from aiogram import Bot
 from aiogram.client.session.base import BaseSession
-from aiogram.methods import SendMessage
-from aiogram.types import Update, Message, Chat, User
+from aiogram.methods import EditMessageText, SendMessage
+from aiogram.types import CallbackQuery, Update, Message, Chat, User
 
 from controlpribor_bot.bot import setup_dispatcher
 from controlpribor_bot.config import Config
 from controlpribor_bot.database.db_manager import DatabaseManager
 from controlpribor_bot.handlers import catalog
 from controlpribor_bot.handlers.admin import (
-    AdminBrandStates,
+    AdminAddProductStates,
     AdminCategoryStates,
     extract_image,
-    slugify,
 )
 from controlpribor_bot.keyboards.admin_kb import (
     PICKER_PER_PAGE,
+    get_admin_main_kb,
     get_picker_kb,
     get_product_admin_actions_kb,
-    get_brand_admin_card_kb,
     get_category_admin_card_kb,
 )
 
@@ -73,8 +72,8 @@ async def test_product_delete_cascades_cart(db: DatabaseManager):
 
 @pytest.mark.asyncio
 async def test_add_brand_same_slug_returns_existing(db: DatabaseManager):
-    chint = await db.add_brand("Chint", slugify("Chint"))
-    again = await db.add_brand("CHINT", slugify("CHINT"))
+    chint = await db.add_brand("Chint", "chint")
+    again = await db.add_brand("CHINT", "chint")
     assert again.id == chint.id
 
 
@@ -83,7 +82,7 @@ async def test_update_brand(db: DatabaseManager):
     a = await db.add_brand("Alpha", "alpha")
     await db.add_brand("Beta", "beta")
 
-    renamed = await db.update_brand(a.id, "Alpha Pro", slugify("Alpha Pro"))
+    renamed = await db.update_brand(a.id, "Alpha Pro", "alpha-pro")
     assert renamed.name == "Alpha Pro"
     assert renamed.slug == "alpha-pro"
 
@@ -157,15 +156,17 @@ def test_picker_kb_paginates_and_has_none_option():
 
 
 def test_admin_card_keyboards():
-    prod_cbs = [b.callback_data for b in _buttons(get_product_admin_actions_kb(7))]
-    assert "admin_prod_edit_brand_7" in prod_cbs
+    prod_cbs = [b.callback_data for b in _buttons(get_product_admin_actions_kb(7, category_id=3))]
     assert "admin_prod_edit_cat_7" in prod_cbs
-
-    brand_cbs = [b.callback_data for b in _buttons(get_brand_admin_card_kb(3))]
-    assert "admin_brand_rename_3" in brand_cbs
+    assert "admin_cat_prods_3_1" in prod_cbs  # tovardan o'z bo'limiga qaytish
+    assert not any("brand" in cb for cb in prod_cbs)  # brend endi tahrirlanmaydi
 
     cat_cbs = [b.callback_data for b in _buttons(get_category_admin_card_kb(5))]
-    assert {"admin_cat_rename_5", "admin_cat_chbrand_5", "admin_cat_del_5"} <= set(cat_cbs)
+    assert {"admin_cat_prods_5_1", "admin_cat_rename_5", "admin_cat_del_5"} <= set(cat_cbs)
+    assert not any("brand" in cb for cb in cat_cbs)
+
+    main_cbs = [b.callback_data for b in _buttons(get_admin_main_kb())]
+    assert "admin_brands" not in main_cbs and "admin_categories" in main_cbs
 
 
 # --- Yordamchi funksiyalar ---
@@ -231,30 +232,75 @@ def _sent_texts(session):
     return [m.text for m in session.requests if isinstance(m, SendMessage)]
 
 
+def _callback_update(data: str, update_id: int) -> Update:
+    admin = User(id=ADMIN_ID, is_bot=False, first_name="Admin")
+    return Update(
+        update_id=update_id,
+        callback_query=CallbackQuery(
+            id=str(update_id), from_user=admin, chat_instance="ci", data=data,
+            message=Message(message_id=500, date=datetime.now(), chat=Chat(id=ADMIN_ID, type="private"),
+                            from_user=admin, text="menu"),
+        ),
+    )
+
+
+def _last_markup_callbacks(session):
+    markups = [m.reply_markup for m in session.requests
+               if isinstance(m, (SendMessage, EditMessageText)) and m.reply_markup]
+    return [b.callback_data for row in markups[-1].inline_keyboard for b in row]
+
+
 @pytest.mark.asyncio
 async def test_menu_button_in_admin_fsm_is_not_saved_as_data(bot_env):
-    await bot_env.state.set_state(AdminBrandStates.waiting_for_name)
+    await bot_env.state.set_state(AdminCategoryStates.waiting_for_name)
 
-    await bot_env.dp.feed_update(bot_env.bot, _text_update("🏷 Brendlar"))
+    await bot_env.dp.feed_update(bot_env.bot, _text_update("📦 Tovarlar"))
 
     assert await bot_env.state.get_state() is None
-    assert await bot_env.db.find_brand("🏷 Brendlar", slugify("🏷 Brendlar")) is None
-    # Tugma o'z ishini bajardi: katalogdagi brendlar menyusi ko'rsatildi (yoki "brendlar mavjud emas")
-    assert any("brend" in (t or "").lower() for t in _sent_texts(bot_env.session))
+    assert await bot_env.db.find_category("📦 Tovarlar") is None
+    # Tugma o'z ishini bajardi: mijozning "Tovarlar" menyusi ko'rsatildi
+    assert any("Tovarlar" in (t or "") for t in _sent_texts(bot_env.session))
 
 
 @pytest.mark.asyncio
-async def test_rename_brand_via_handler(bot_env):
-    brand = await bot_env.db.add_brand("Old <Name>", "old-name")
-    await bot_env.state.set_state(AdminBrandStates.waiting_for_new_name)
-    await bot_env.state.update_data(edit_brand_id=brand.id)
+async def test_add_product_without_brand_step(bot_env):
+    db = bot_env.db
+    akfix = await db.find_category("AKFIX")
 
-    await bot_env.dp.feed_update(bot_env.bot, _text_update("New & Name"))
+    await bot_env.dp.feed_update(bot_env.bot, _callback_update("admin_prod_add", 1))
+    await bot_env.dp.feed_update(bot_env.bot, _text_update("AKFIX 705 <yangi>", 2))
 
-    renamed = await bot_env.db.get_brand_by_id(brand.id)
-    assert renamed.name == "New & Name"
+    # Nomdan keyin darhol bo'lim tanlanadi: brend yo'q, "Kategoriyasiz" varianti ham yo'q
+    assert await bot_env.state.get_state() == AdminAddProductStates.waiting_for_category.state
+    picker = _last_markup_callbacks(bot_env.session)
+    assert picker[0] == f"admin_prod_c_{akfix.id}"  # mijozdagi tartibda — AKFIX birinchi
+    assert "admin_prod_c_0" not in picker and not any("brand" in cb or "_b_" in cb for cb in picker)
+
+    await bot_env.dp.feed_update(bot_env.bot, _callback_update(f"admin_prod_c_{akfix.id}", 3))
+    await bot_env.dp.feed_update(bot_env.bot, _text_update("4.5$", 4))
+    await bot_env.dp.feed_update(bot_env.bot, _callback_update("admin_fsm_skip", 5))  # rasm
+    await bot_env.dp.feed_update(bot_env.bot, _callback_update("admin_fsm_skip", 6))  # tavsif
+
     assert await bot_env.state.get_state() is None
-    assert any("New &amp; Name" in (t or "") for t in _sent_texts(bot_env.session))
+    product = await db.get_product_by_name("AKFIX 705 <yangi>")
+    product = await db.get_product_by_id(product.id)
+    assert product.category.name == "AKFIX"
+    assert product.brand is None and product.price == "4.5$"
+
+
+@pytest.mark.asyncio
+async def test_admin_category_list_and_products(bot_env):
+    db = bot_env.db
+    tess = await db.find_category("TESS")
+    lamp = await db.add_product("TESS LED 15W", category_id=tess.id)
+
+    await bot_env.dp.feed_update(bot_env.bot, _callback_update("admin_cat_list_1", 1))
+    edits = [m for m in bot_env.session.requests if isinstance(m, EditMessageText)]
+    first_page = [b.text for row in edits[-1].reply_markup.inline_keyboard for b in row]
+    assert first_page[0] == "🧴 AKFIX (0)" and "💡 TESS (1)" in first_page  # mijozdagi tartib + soni
+
+    await bot_env.dp.feed_update(bot_env.bot, _callback_update(f"admin_cat_prods_{tess.id}_1", 2))
+    assert f"admin_prod_view_{lamp.id}" in _last_markup_callbacks(bot_env.session)
 
 
 @pytest.mark.asyncio
