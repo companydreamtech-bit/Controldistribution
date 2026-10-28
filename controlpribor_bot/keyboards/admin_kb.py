@@ -19,9 +19,6 @@ def get_admin_main_kb() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="📥 Kanaldan import (@asfdistribution)", callback_data="admin_import_channel"),
         ],
         [
-            InlineKeyboardButton(text="🧹 Kanaldan kelmagan eski tovarlarni o'chirish", callback_data="admin_cleanup_old"),
-        ],
-        [
             InlineKeyboardButton(text="❌ Menyuni yopish", callback_data="admin_close"),
         ],
     ]

@@ -264,60 +264,6 @@ async def run_channel_import(callback: CallbackQuery, db: DatabaseManager, confi
     await callback.message.edit_text(text, reply_markup=back_kb, parse_mode="HTML")
 
 
-# --- Kanaldan kelmagan eski tovarlarni tozalash ---
-CHANNEL_URL_PREFIX = f"https://t.me/{DEFAULT_CHANNEL}/"
-
-
-@admin_router.callback_query(F.data == "admin_cleanup_old")
-async def ask_cleanup_old_products(callback: CallbackQuery, db: DatabaseManager, config: Config):
-    if not config.is_admin(callback.from_user.id):
-        return
-
-    count = await db.count_products_not_from(CHANNEL_URL_PREFIX)
-    if not count:
-        await callback.answer("Kanaldan kelmagan tovar qolmagan.", show_alert=True)
-        return
-
-    channel_count = await db.count_products() - count
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=f"🗑 Ha, {count} ta tovarni o'chirish", callback_data="admin_cleanup_old_confirm")],
-            [InlineKeyboardButton(text="❌ Bekor qilish", callback_data="admin_back_main")],
-        ]
-    )
-    await callback.message.edit_text(
-        f"⚠️ <b>Kanaldan kelmagan {count} ta tovar o'chiriladi.</b>\n\n"
-        f"Bular @{DEFAULT_CHANNEL} postlaridan olinmagan tovarlar (masalan, eski saytdan olinganlar) "
-        f"va qo'lda qo'shilgan tovarlar.\n\n"
-        f"✅ Kanaldan kelgan {channel_count} ta tovar, kategoriyalar va buyurtmalar tarixi saqlanadi.\n"
-        f"🏷 Tovarsiz qolgan eski brendlar ham o'chiriladi.\n\n"
-        f"<i>Bu amalni ortga qaytarib bo'lmaydi.</i>",
-        reply_markup=kb,
-        parse_mode="HTML",
-    )
-    await callback.answer()
-
-
-@admin_router.callback_query(F.data == "admin_cleanup_old_confirm")
-async def cleanup_old_products(callback: CallbackQuery, db: DatabaseManager, config: Config):
-    if not config.is_admin(callback.from_user.id):
-        return
-
-    product_ids, removed_brands = await db.delete_products_not_from(CHANNEL_URL_PREFIX)
-    for product_id in product_ids:
-        invalidate_photo_cache(product_id)
-
-    await callback.answer("Eski tovarlar o'chirildi!")
-    await callback.message.edit_text(
-        f"✅ <b>Tozalash tugadi.</b>\n\n"
-        f"🗑 O'chirilgan tovarlar: <b>{len(product_ids)}</b> ta\n"
-        f"🏷 O'chirilgan bo'sh brendlar: <b>{removed_brands}</b> ta\n"
-        f"📦 Qolgan tovarlar: <b>{await db.count_products()}</b> ta",
-        reply_markup=get_admin_main_kb(),
-        parse_mode="HTML",
-    )
-
-
 # ==========================================
 # 🏷 BRENDLAR BOSHQARUVI
 # ==========================================
