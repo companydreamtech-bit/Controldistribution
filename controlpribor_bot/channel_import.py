@@ -28,18 +28,24 @@ if str(root_dir) not in sys.path:
 import httpx
 from bs4 import BeautifulSoup
 
-from controlpribor_bot.database.db_manager import DatabaseManager
+from controlpribor_bot.database.db_manager import (
+    DatabaseManager,
+    OTHER_PRODUCTS_CATEGORY,
+    SHOP_CATEGORIES,
+)
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_CHANNEL = "asfdistribution"
 MEDIA_PREFIX = "media/"
-OTHER_CATEGORY = "Boshqa tovarlar"
+# Tovar turi aniqlanmaganda (va 16 ta kategoriyaga mos kelmaganda) ishlatiladi
+OTHER_CATEGORY = OTHER_PRODUCTS_CATEGORY
+SHOP_CATEGORY_KEYS = {name.lower() for name in SHOP_CATEGORIES}
 
 # Matnidan aniqlab bo'lmaydigan postlar uchun qo'lda tekshirilgan ma'lumotlar (rasm bo'yicha).
 # Bu qiymatlar mavjud tovarlarga ham har importda qo'llanadi.
 POST_OVERRIDES: Dict[int, Dict[str, str]] = {
-    306: {"name": "VOLT LED lampochka (20W–50W)", "brand": "Volt", "category": "Yoritish"},
+    306: {"name": "VOLT LED lampochka (20W–50W)", "brand": "Volt", "category": OTHER_PRODUCTS_CATEGORY},
     330: {"name": "Пилки для электролобзика", "category": "Instrumentlar"},
 }
 
@@ -127,6 +133,42 @@ BRAND_DEFAULT_CATEGORY: Dict[str, str] = {
     "Wanruishi": "Instrumentlar",
     "Krokodil": "Instrumentlar",
 }
+
+# --- Botdagi 16 ta kategoriya ("📦 Tovarlar") ---
+# Tovar turi bo'yicha aniq mos keladigan kategoriyalar (brenddan ustun: "Щит металл — Profmet")
+SHOP_TYPE_FIRST = {"Metall shitlar", "gofra va korp"}
+# Brend kategoriyalari
+BRAND_TO_SHOP_CATEGORY: Dict[str, str] = {
+    "Akfix": "AKFIX",
+    "Terafix": "TERAFIX",
+    "Tess": "TESS",
+    "Nilson": "NILSON",
+    "Oydin Electric": "OYDIN ELECTRIC",
+    "Nura Electric": "NURA ELECTRIC",
+    "Chint": "CHINT",
+    "Baumann Electric": "BAUMANN ELECTRIC",
+    "Procab": "PROCAB",
+    "Uzkabel": "UZKABEL",
+    "Lezard": "LEZARD",
+    "SAM": "SAM shlanglar",
+    "Profmet": "Metall shitlar",
+    "Mutlusan": "gofra va korp",
+}
+# Brendi ro'yxatda bo'lmasa, tur bo'yicha
+SHOP_TYPE_LATER = {"Instrumentlar", "SAM shlanglar"}
+# Oldingi versiya yaratgan tur kategoriyalari — bo'shab qolsa o'chiriladi
+LEGACY_TYPE_CATEGORIES = [name for name, _ in CATEGORY_RULES if name.lower() not in SHOP_CATEGORY_KEYS]
+
+
+def shop_category(kind: str, brand: Optional[str]) -> str:
+    """Tovar turi va brendidan botdagi 16 ta kategoriyadan birini tanlash, mos kelmasa — "Boshqa tovarlar"."""
+    if kind in SHOP_TYPE_FIRST:
+        return kind
+    if brand in BRAND_TO_SHOP_CATEGORY:
+        return BRAND_TO_SHOP_CATEGORY[brand]
+    if kind in SHOP_TYPE_LATER:
+        return kind
+    return OTHER_PRODUCTS_CATEGORY
 
 # Tovar bo'lmagan postlar (aksiya, e'lon, xizmat xabarlari)
 SKIP_PATTERNS = [
@@ -406,13 +448,14 @@ def parse_post(post: ChannelPost, channel: str = DEFAULT_CHANNEL) -> Optional[Pa
     if brand and not any(_brand_pattern(a).search(name) for a in BRAND_ALIASES[brand]):
         name = f"{name} — {brand}"
     price = extract_price(lines)
-    category = detect_category(name, lines, brand)
+    kind = detect_category(name, lines, brand)
 
     # Brendi, narxi va turi aniqlanmagan post — tovar emas (masalan, umumiy e'lon)
-    if not brand and price == "Kelishilgan holda" and category == OTHER_CATEGORY:
+    if not brand and price == "Kelishilgan holda" and kind == OTHER_CATEGORY:
         return None
-    if category == OTHER_CATEGORY:
+    if kind == OTHER_CATEGORY:
         needs_review = True
+    category = shop_category(kind, brand)
 
     # Tavsif: sarlavhadan keyingi qatorlar (tovar kartasida ko'rinadi)
     description = "\n".join(lines[1:]).strip() or None
@@ -603,6 +646,12 @@ async def import_channel(
                         brand_id=await brand_id_for(product.brand),
                         category_id=await category_id_for(product.category),
                     )
+                else:
+                    # Do'kon kategoriyalaridan tashqaridagi (eski avtomatik) kategoriyadan ko'chirish;
+                    # admin 16 tadan biriga qo'lda qo'ygan bo'lsa, tegilmaydi
+                    current = await db.get_product_by_id(existing.id)
+                    if not current.category or current.category.name.lower() not in SHOP_CATEGORY_KEYS:
+                        fields["category_id"] = await category_id_for(product.category)
                 await db.update_product_fields(existing.id, **fields)
                 result.updated += 1
                 continue
@@ -617,10 +666,21 @@ async def import_channel(
                 product_url=product.post_url,
             )
             result.created += 1
+
+        if not dry_run:
+            await _remove_empty_legacy_categories(db)
     finally:
         if own_client:
             await client.aclose()
     return result
+
+
+async def _remove_empty_legacy_categories(db: DatabaseManager) -> None:
+    """Oldingi importlar yaratgan, endi bo'sh qolgan tur kategoriyalarini ("Yoritish", "Kabellar"...) o'chirish."""
+    for name in LEGACY_TYPE_CATEGORIES:
+        cat = await db.find_category(name)
+        if cat and await db.count_products(category_id=cat.id) == 0:
+            await db.delete_category(cat.id)
 
 
 def default_media_dir(db_path: str) -> Path:

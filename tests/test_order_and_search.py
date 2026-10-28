@@ -175,3 +175,39 @@ async def test_empty_category_shows_single_alert(env):
     answers = [m for m in env.session.requests if isinstance(m, AnswerCallbackQuery)]
     assert len(answers) == 1
     assert answers[0].show_alert and "topilmadi" in answers[0].text
+
+
+# --- "📦 Tovarlar" menyusi ---
+@pytest.mark.asyncio
+async def test_shop_categories_order(db: DatabaseManager):
+    from controlpribor_bot.database.db_manager import DEFAULT_CATEGORIES
+
+    other = await db.add_category("Boshqa tovarlar")
+    extra = await db.add_category("Admin kategoriyasi")
+    await db.add_category("Bo'sh qo'shimcha")
+    await db.add_product("A", category_id=other.id)
+    await db.add_product("B", category_id=extra.id)
+
+    names = [c.name for c in await db.get_shop_categories()]
+    assert names == DEFAULT_CATEGORIES + ["Admin kategoriyasi", "Boshqa tovarlar"]
+
+
+@pytest.mark.asyncio
+async def test_products_button_shows_all_shop_categories(env):
+    await env.dp.feed_update(env.bot, Update(update_id=1, message=_message("📦 Tovarlar")))
+
+    sent = [m for m in env.session.requests if isinstance(m, SendMessage)]
+    assert len(sent) == 1
+    buttons = [b.text for row in sent[0].reply_markup.inline_keyboard for b in row]
+    assert len(buttons) == 16 and buttons[0] == "🧴 AKFIX" and buttons[-1] == "💡 LEZARD"
+
+
+@pytest.mark.asyncio
+async def test_legacy_menu_button_refreshes_keyboard(env):
+    await env.dp.feed_update(env.bot, Update(update_id=1, message=_message("🏷 Brendlar")))
+
+    sent = [m for m in env.session.requests if isinstance(m, SendMessage)]
+    assert len(sent) == 2  # yangi menyu + bo'limlar
+    menu_buttons = [b.text for row in sent[0].reply_markup.keyboard for b in row]
+    assert "📦 Tovarlar" in menu_buttons
+    assert "Tovarlar" in sent[1].text

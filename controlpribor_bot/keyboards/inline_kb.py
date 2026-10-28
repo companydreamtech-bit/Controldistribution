@@ -38,21 +38,25 @@ def get_brands_kb(brands: List[Any], page: int = 1, per_page: int = 8) -> Inline
 
 
 def get_categories_kb(
-    categories: List[Any], brand_id: Optional[int] = None, page: int = 1, per_page: int = 8
+    categories: List[Any], brand_id: Optional[int] = None, page: int = 1, per_page: int = 8, columns: int = 1
 ) -> InlineKeyboardMarkup:
-    """Toifalar ro'yxati inline klaviaturasi."""
+    """Toifalar ro'yxati inline klaviaturasi (columns — bir qatordagi tugmalar soni)."""
     keyboard = []
     start_idx = (page - 1) * per_page
     end_idx = start_idx + per_page
     current_page_cats = categories[start_idx:end_idx]
 
+    row = []
     for c in current_page_cats:
         c_id = c["id"] if isinstance(c, dict) else c.id
         c_name = c["name"] if isinstance(c, dict) else c.name
         cb_data = f"cat_{c_id}_{brand_id}" if brand_id else f"cat_{c_id}"
-        keyboard.append([
-            InlineKeyboardButton(text=f"{category_icon(c_name)} {c_name}", callback_data=cb_data)
-        ])
+        row.append(InlineKeyboardButton(text=f"{category_icon(c_name)} {c_name}", callback_data=cb_data))
+        if len(row) == columns:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
 
     total_pages = max(1, (len(categories) + per_page - 1) // per_page)
     nav_row = []

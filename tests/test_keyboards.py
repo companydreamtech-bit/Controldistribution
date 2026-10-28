@@ -13,8 +13,8 @@ def test_main_menu_and_contact_kb():
     menu = get_main_menu_kb()
     assert len(menu.keyboard) >= 3
     buttons_text = [btn.text for row in menu.keyboard for btn in row]
-    assert "🏷 Brendlar" in buttons_text
-    assert "📁 Barcha kategoriyalar" in buttons_text
+    assert "📦 Tovarlar" in buttons_text
+    assert "🏷 Brendlar" not in buttons_text and "📁 Barcha kategoriyalar" not in buttons_text
     assert "🔍 Tovar qidirish" in buttons_text
     assert "🛒 Savatcha" in buttons_text
     assert "📞 Bog'lanish / Menejer" in buttons_text

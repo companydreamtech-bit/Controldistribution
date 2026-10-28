@@ -43,7 +43,7 @@ def test_brand_header_with_subtitle_and_sum_prices():
     p = parse_post(post(text, 245))
     assert p.name == "PROCAB — Многожильные кабели ПУГНП"
     assert p.brand == "Procab"
-    assert p.category == "Kabellar"
+    assert p.category == "PROCAB"
     assert p.price == "2 520 so'm – 15 840 so'm"
 
 
@@ -54,7 +54,7 @@ def test_dash_prices_without_currency_are_usd():
     )
     p = parse_post(post(text, 238))
     assert p.brand == "Nilson"
-    assert p.category == "Rozetka va o'chirgichlar"
+    assert p.category == "NILSON"
     assert p.price == "0.8$ – 1.35$"
 
 
@@ -63,7 +63,7 @@ def test_model_code_is_not_price():
     p = parse_post(post(text, 141))
     assert p.name == "Контактор NC1-9511 — Chint"
     assert p.price == "Kelishilgan holda"
-    assert p.category == "Avtomatika va himoya"
+    assert p.category == "CHINT"
     assert p.description == "❗CHINT"  # xizmat shartlari tavsifga kirmaydi
 
 
@@ -81,7 +81,7 @@ def test_slogan_first_line_takes_model_from_next_line():
     text = "⚡ Kuchlanishdagi o‘zgarishlardan himoyalaning!\nCHINT TM-1 — qurilmalaringiz uchun barqaror kuchlanish."
     p = parse_post(post(text, 169))
     assert p.name == "CHINT TM-1"
-    assert p.category == "Avtomatika va himoya"
+    assert p.category == "CHINT"
 
 
 @pytest.mark.parametrize("text", [
@@ -188,7 +188,7 @@ async def test_import_channel_creates_and_updates(db: DatabaseManager, tmp_path:
     lamp = await db.get_product_by_url("https://t.me/asfdistribution/11")
     lamp = await db.get_product_by_id(lamp.id)
     assert lamp.name == "LED лампочка 15W — Tess"
-    assert lamp.category.name == "Yoritish"
+    assert lamp.category.name == "TESS"
 
     # Admin nomni o'zgartiradi, kanalda narx o'zgaradi -> qayta import nomni saqlab, narxni yangilaydi
     await db.update_product_fields(stapler.id, name="Stepler SMASH (admin)")
@@ -283,7 +283,7 @@ async def test_post_overrides_fix_already_imported_products(db: DatabaseManager,
     lamp = await db.get_product_by_id(old.id)
     assert lamp.name == "VOLT LED lampochka (20W–50W)"
     assert lamp.brand.name == "Volt"
-    assert lamp.category.name == "Yoritish"
+    assert lamp.category.name == "Boshqa tovarlar"  # Volt brendi 16 tadan tashqarida
     assert lamp.price == "0.9$ – 2.3$"
 
     blades = await db.get_product_by_url("https://t.me/asfdistribution/330")
@@ -309,3 +309,42 @@ async def test_reimport_keeps_admin_price_when_post_has_none(db: DatabaseManager
         await import_channel(db, tmp_path / "media", client=client)
 
     assert (await db.get_product_by_id(lamp.id)).price == "12 000 so'm"
+
+
+# --- Botdagi 16 ta kategoriya ---
+@pytest.mark.parametrize("kind, brand, expected", [
+    ("Metall shitlar", "Profmet", "Metall shitlar"),
+    ("Montaj aksessuarlari", "Profmet", "Metall shitlar"),
+    ("gofra va korp", None, "gofra va korp"),
+    ("Yoritish", "Baumann Electric", "BAUMANN ELECTRIC"),
+    ("Instrumentlar", "Baumann Electric", "BAUMANN ELECTRIC"),
+    ("Instrumentlar", "Smash", "Instrumentlar"),
+    ("Instrumentlar", None, "Instrumentlar"),
+    ("Kabellar", "Uzkabel", "UZKABEL"),
+    ("Yoritish", "Redray", "Boshqa tovarlar"),
+    ("Stabilizatorlar", "Balance", "Boshqa tovarlar"),
+])
+def test_shop_category(kind, brand, expected):
+    from controlpribor_bot.channel_import import shop_category
+    assert shop_category(kind, brand) == expected
+
+
+@pytest.mark.asyncio
+async def test_reimport_moves_products_out_of_legacy_categories(db: DatabaseManager, tmp_path: Path):
+    # Oldingi versiya tovarni "Yoritish" tur kategoriyasiga joylagan
+    legacy = await db.add_category("Yoritish")
+    lamp = await db.add_product("LED лампочка 15W — Tess", category_id=legacy.id,
+                                product_url="https://t.me/asfdistribution/11")
+    # Admin qo'lda 16 tadan biriga qo'ygan tovar o'z joyida qolishi kerak
+    instruments = await db.find_category("Instrumentlar")
+    stapler = await db.add_product("SMASH степлер", category_id=instruments.id,
+                                   product_url="https://t.me/asfdistribution/10")
+    akfix = await db.find_category("AKFIX")
+    await db.update_product_fields(stapler.id, category_id=akfix.id)
+
+    async with make_client(PAGE_HTML, []) as client:
+        await import_channel(db, tmp_path / "media", client=client)
+
+    assert (await db.get_product_by_id(lamp.id)).category.name == "TESS"
+    assert (await db.get_product_by_id(stapler.id)).category.name == "AKFIX"
+    assert await db.find_category("Yoritish") is None  # bo'shab qolgan eski kategoriya o'chirildi

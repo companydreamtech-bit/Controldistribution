@@ -7,6 +7,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message, CallbackQuery
 
 from controlpribor_bot.database.db_manager import DatabaseManager
+from controlpribor_bot.keyboards.default_kb import MAIN_MENU_TEXTS
 from controlpribor_bot.keyboards.inline_kb import get_products_list_kb
 
 search_router = Router(name="search_router")
@@ -40,14 +41,7 @@ async def perform_state_search(message: Message, state: FSMContext, db: Database
     StateFilter(None),
     F.text
     & ~F.text.startswith("/")
-    & ~F.text.in_([
-        "🏷 Brendlar",
-        "📁 Barcha kategoriyalar",
-        "🔍 Tovar qidirish",
-        "🛒 Savatcha",
-        "📞 Bog'lanish / Menejer",
-        "📱 Telefon raqamni yuborish",
-    ])
+    & ~F.text.in_([*MAIN_MENU_TEXTS, "📱 Telefon raqamni yuborish"])
 )
 async def direct_text_search(message: Message, state: FSMContext, db: DatabaseManager):
     query = message.text.strip()

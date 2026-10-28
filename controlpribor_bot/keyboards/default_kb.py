@@ -1,12 +1,15 @@
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
+PRODUCTS_BUTTON = "📦 Tovarlar"
+# Eski menyu tugmalari: foydalanuvchida /start bosmaguncha eski klaviatura turadi
+LEGACY_CATALOG_BUTTONS = ("🏷 Brendlar", "📁 Barcha kategoriyalar")
+
 
 def get_main_menu_kb(is_admin: bool = False) -> ReplyKeyboardMarkup:
     """Asosiy menyu reply klaviaturasi."""
     keyboard = [
         [
-            KeyboardButton(text="🏷 Brendlar"),
-            KeyboardButton(text="📁 Barcha kategoriyalar"),
+            KeyboardButton(text=PRODUCTS_BUTTON),
         ],
         [
             KeyboardButton(text="🔍 Tovar qidirish"),
@@ -43,8 +46,8 @@ def get_contact_kb() -> ReplyKeyboardMarkup:
 
 # Asosiy menyu tugmalari matnlari (FSM holatlarida ma'lumot sifatida qabul qilinmasligi uchun)
 MAIN_MENU_TEXTS = (
-    "🏷 Brendlar",
-    "📁 Barcha kategoriyalar",
+    PRODUCTS_BUTTON,
+    *LEGACY_CATALOG_BUTTONS,
     "🔍 Tovar qidirish",
     "🛒 Savatcha",
     "📞 Bog'lanish / Menejer",

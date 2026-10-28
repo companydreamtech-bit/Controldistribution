@@ -9,6 +9,7 @@ from aiogram.types import Message, CallbackQuery, FSInputFile
 from controlpribor_bot.config import Config
 from controlpribor_bot.database.db_manager import DatabaseManager
 from controlpribor_bot.handlers.start import NO_PHONE
+from controlpribor_bot.keyboards.default_kb import LEGACY_CATALOG_BUTTONS, PRODUCTS_BUTTON, get_main_menu_kb
 from controlpribor_bot.keyboards.inline_kb import (
     get_brands_kb,
     get_categories_kb,
@@ -46,32 +47,30 @@ def resolve_photo(image_url: Optional[str], db_path: str) -> Optional[Union[str,
     return None
 
 
-@catalog_router.message(F.text == "🏷 Brendlar")
-async def show_brands(message: Message, db: DatabaseManager):
-    brands = await db.get_brands()
-    if not brands:
-        await message.answer("Hozircha brendlar mavjud emas.")
-        return
-
-    await message.answer(
-        "🏷 <b>Asosiy brendlar:</b>\n\nKerakli brendni tanlang:",
-        reply_markup=get_brands_kb(brands, page=1),
-        parse_mode="HTML",
-    )
+PRODUCTS_TITLE = "📦 <b>Tovarlar:</b>\n\nKerakli bo'limni tanlang:"
 
 
-@catalog_router.message(F.text == "📁 Barcha kategoriyalar")
-async def show_all_categories(message: Message, db: DatabaseManager):
-    categories = await db.get_all_categories()
+def shop_categories_kb(categories):
+    """"📦 Tovarlar" bo'limlari: hammasi bitta sahifada, 2 ustunda."""
+    return get_categories_kb(categories, brand_id=None, page=1, per_page=max(1, len(categories)), columns=2)
+
+
+@catalog_router.message(F.text == PRODUCTS_BUTTON)
+@catalog_router.message(F.text.in_(LEGACY_CATALOG_BUTTONS))
+async def show_products_menu(message: Message, db: DatabaseManager, config: Config):
+    if message.text in LEGACY_CATALOG_BUTTONS:
+        # Eski klaviatura bilan kelgan foydalanuvchiga yangi menyuni beramiz
+        await message.answer(
+            "🔄 Menyu yangilandi: brendlar va kategoriyalar endi «📦 Tovarlar» bo'limida.",
+            reply_markup=get_main_menu_kb(is_admin=config.is_admin(message.from_user.id)),
+        )
+
+    categories = await db.get_shop_categories()
     if not categories:
-        await message.answer("Hozircha toifalar mavjud emas.")
+        await message.answer("Hozircha tovarlar mavjud emas.")
         return
 
-    await message.answer(
-        "📁 <b>Barcha toifalar:</b>\n\nKerakli bo'limni tanlang:",
-        reply_markup=get_categories_kb(categories, brand_id=None, page=1),
-        parse_mode="HTML",
-    )
+    await message.answer(PRODUCTS_TITLE, reply_markup=shop_categories_kb(categories), parse_mode="HTML")
 
 
 @catalog_router.callback_query(F.data.startswith("brands_page_"))
@@ -88,14 +87,10 @@ async def handle_brands_pagination(callback: CallbackQuery, db: DatabaseManager)
 
 @catalog_router.callback_query(F.data.startswith("allcats_page_"))
 async def handle_all_categories_pagination(callback: CallbackQuery, db: DatabaseManager):
+    # Eski xabarlardagi sahifa tugmalari uchun: endi barcha bo'limlar bitta sahifada
     await callback.answer()
-    page = int(callback.data.split("_")[-1])
-    categories = await db.get_all_categories()
-    await callback.message.edit_text(
-        "📁 <b>Barcha toifalar:</b>\n\nKerakli bo'limni tanlang:",
-        reply_markup=get_categories_kb(categories, brand_id=None, page=page),
-        parse_mode="HTML",
-    )
+    categories = await db.get_shop_categories()
+    await callback.message.edit_text(PRODUCTS_TITLE, reply_markup=shop_categories_kb(categories), parse_mode="HTML")
 
 
 @catalog_router.callback_query(F.data.startswith("cats_page_"))
@@ -421,12 +416,8 @@ async def back_to_brands_list(callback: CallbackQuery, db: DatabaseManager):
 @catalog_router.callback_query(F.data == "back_to_cats")
 async def back_to_categories_list(callback: CallbackQuery, db: DatabaseManager):
     await callback.answer()
-    categories = await db.get_all_categories()
-    await callback.message.edit_text(
-        "📁 <b>Barcha toifalar:</b>\n\nKerakli bo'limni tanlang:",
-        reply_markup=get_categories_kb(categories, brand_id=None, page=1),
-        parse_mode="HTML",
-    )
+    categories = await db.get_shop_categories()
+    await callback.message.edit_text(PRODUCTS_TITLE, reply_markup=shop_categories_kb(categories), parse_mode="HTML")
 
 
 @catalog_router.callback_query(F.data == "noop")
